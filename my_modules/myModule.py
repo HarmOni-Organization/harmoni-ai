@@ -95,16 +95,34 @@ def match_tmdb_to_movielens(qualified_movies, links_df):
     return qualified_movies.dropna(subset=["movieId"]).astype({"movieId": "int"})
 
 
-def handle_new_user(qualified_movies, top_n, popularity_weight, similarity_weight, recency_weight, new_df):
+def handle_new_user(
+    qualified_movies,
+    top_n,
+    popularity_weight,
+    similarity_weight,
+    recency_weight,
+    new_df,
+):
+    """
+    Return recommendations for new users based only on content similarity and IMDb scores.
+    """
     if len(qualified_movies) < top_n:
-        trending_movies = new_df.sort_values("popularity", ascending=False).head(top_n * 2)
-        qualified_movies = pd.concat([qualified_movies, trending_movies]).drop_duplicates("id")
-    qualified_movies = _apply_recency_boost(qualified_movies)
+        popular_movies = new_df.sort_values("popularity", ascending=False).head(top_n * 2)
+        qualified_movies = pd.concat(
+            [qualified_movies, popular_movies]
+        ).drop_duplicates("id")
+
+    # Compute Final Score for Sorting
     qualified_movies["final_score"] = (
-        popularity_weight * qualified_movies["weighted_rating"] +
-        similarity_weight * qualified_movies["similarity_score"] +
-        recency_weight * qualified_movies["recency_score"]
+        popularity_weight * qualified_movies["weighted_rating"]
+    ) + (similarity_weight * qualified_movies["similarity_score"])
+
+    # Combine recency into final_score
+    qualified_movies["final_score"] = (
+        qualified_movies["final_score"] * (1 - recency_weight)
+        + qualified_movies["recency_score"] * recency_weight
     )
+
     return qualified_movies.sort_values("final_score", ascending=False).head(top_n)[
         ["id", "title", "release_date", "final_score", "poster_path"]
     ]
