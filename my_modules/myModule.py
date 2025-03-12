@@ -1,29 +1,29 @@
-import requests
+import os
+import pickle
+import logging
 import numpy as np
 import pandas as pd
 import datetime as dt
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import load_npz
 from surprise import PredictionImpossible
-import os
 from dotenv import load_dotenv
-import pickle
+import requests
 
-# Load environment variables from .env file
+# Load environment variables
 load_dotenv()
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
 
 
 def load_data():
     """
     Load datasets for MovieLens, TMDb links, and movie metadata.
-
-    Returns:
-    tuple: DataFrames containing ratings, links, and merged movie details.
     """
-    ratings_df = pd.read_csv(r"data/ratings_small.csv")  # MovieLens ratings
-    links_df = pd.read_csv(r"data/links_small.csv")  # TMDb and MovieLens ID mapping
-    new_df = pd.read_csv(r"data/new_df_data (1).csv")  # Movies Dataset
-
+    ratings_df = pd.read_csv(os.getenv("RATINGS_PATH"))
+    links_df = pd.read_csv(os.getenv("LINKS_PATH"))
+    new_df = pd.read_csv(os.getenv("MOVIES_PATH"))
     return ratings_df, links_df, new_df
 
 
@@ -40,23 +40,25 @@ def load_data():
 def load_model():
     """
     Load pre-trained SVD model for collaborative filtering.
-
-    Returns:
-    object: Pre-trained SVD model.
     """
-    with open(r"models/best_svd1.pkl", "rb") as file:
+    with open(os.getenv("SVD_MODEL_PATH"), "rb") as file:
         return pickle.load(file)
 
 
-# Load Data & Model at Startup
-ratings_df, links_df, new_df = load_data()
-best_svd1 = load_model()
-
 # Load Count Matrix
-count_matrix = load_npz(r"data/count_matrix.npz")
+def load_count_matrix():
+    """
+    Load precomputed count matrix.
+    """
+    return load_npz(os.getenv("COUNT_MATRIX_PATH", "data/count_matrix.npz"))
+
 
 # Create Movie Index Mapping (Title to Index)
-indices = pd.Series(new_df.index, index=new_df["title"]).drop_duplicates()
+def create_indices(new_df):
+    """
+    Create Movie Index Mapping (Title to Index).
+    """
+    return pd.Series(new_df.index, index=new_df["title"]).drop_duplicates()
 
 
 def weighted_rating(x, C, m):
@@ -94,21 +96,23 @@ def match_tmdb_to_movielens(qualified_movies, links_df):
 
 
 def handle_new_user(
-    qualified_movies, top_n, popularity_weight, similarity_weight, recency_weight
+    qualified_movies,
+    top_n,
+    popularity_weight,
+    similarity_weight,
+    recency_weight,
+    new_df,
 ):
     """
     Return recommendations for new users based only on content similarity and IMDb scores.
-
-    Parameters:
-    qualified_movies (DataFrame): Movies selected for recommendation.
-    top_n (int): Number of recommendations.
-    popularity_weight (float): Weight of IMDb rating.
-    similarity_weight (float): Weight of content similarity.
-
-    Returns:
-    DataFrame: Top N recommendations for a new user.
     """
-    # Compute Final Score for Sorting, Final Score (no SVD for new user)
+    if len(qualified_movies) < top_n:
+        popular_movies = new_df.sort_values("popularity", ascending=False).head(top_n * 2)
+        qualified_movies = pd.concat(
+            [qualified_movies, popular_movies]
+        ).drop_duplicates("id")
+
+    # Compute Final Score for Sorting
     qualified_movies["final_score"] = (
         popularity_weight * qualified_movies["weighted_rating"]
     ) + (similarity_weight * qualified_movies["similarity_score"])
@@ -120,65 +124,59 @@ def handle_new_user(
     )
 
     return qualified_movies.sort_values("final_score", ascending=False).head(top_n)[
-        [
-            "id",
-            "title",
-            "release_date",
-            "final_score",
-            "poster_path"
-        ]
+        ["id", "title", "release_date", "final_score", "poster_path"]
     ]
 
 
 def predict_ratings(user_id, qualified_movies, best_svd_model, ratings_df, C):
-    """
-    Predict ratings using the trained SVD model or fallback to nearest neighbor ratings.
+    try:
+        user_inner_id = best_svd_model.trainset.to_inner_uid(user_id)
+    except ValueError:
+        # User not in training set, use global average
+        qualified_movies['predicted_rating'] = C
+        return qualified_movies
 
-    Parameters:
-    user_id (int): User ID for whom ratings are predicted.
-    qualified_movies (DataFrame): Movies selected for recommendation.
-    best_svd_model (object): Trained SVD model.
-    ratings_df (DataFrame): User ratings dataset.
-    C (float): Mean vote across all movies.
+    # Vectorized prediction
+    global_mean = best_svd_model.trainset.global_mean
+    user_bias = best_svd_model.bu[user_inner_id]
+    item_biases = []
+    item_factors = []
 
-    Returns:
-    DataFrame: Updated movies DataFrame with predicted ratings.
-    """
-    predicted_ratings = []
-
-    for movie_id in qualified_movies["movieId"]:
+    for movie_id in qualified_movies['movieId']:
         try:
-            prediction = best_svd_model.predict(user_id, movie_id)
-            predicted_ratings.append(prediction.est)  # Extract predicted rating
-        except PredictionImpossible:
-            # Use weighted average of nearest neighbors if prediction fails
+            item_inner_id = best_svd_model.trainset.to_inner_iid(movie_id)
+            item_biases.append(best_svd_model.bi[item_inner_id])
+            item_factors.append(best_svd_model.qi[item_inner_id])
+        except ValueError:
+            # Fallback to nearest neighbor average
             nearest_neighbors = ratings_df[ratings_df["movieId"] == movie_id]["rating"]
-            predicted_ratings.append(
-                nearest_neighbors.mean() if not nearest_neighbors.empty else C
-            )
+            fallback = nearest_neighbors.mean() if not nearest_neighbors.empty else C
+            item_biases.append(fallback - global_mean - user_bias)
+            item_factors.append(np.zeros_like(best_svd_model.qi[0]))
 
-    qualified_movies["predicted_rating"] = predicted_ratings
+    item_factors = np.array(item_factors)
+    predicted = global_mean + user_bias + np.array(item_biases) + np.dot(item_factors, best_svd_model.pu[user_inner_id])
+    qualified_movies['predicted_rating'] = np.clip(predicted, 0.5, 5.0)
     return qualified_movies
 
 
-def compute_hybrid_score(qualified_movies, user_ratings_count, recency_weight, top_n):
+def compute_hybrid_score(
+    qualified_movies,
+    user_ratings_count,
+    recency_weight,
+    top_n,
+    svd_thresholds=(10, 50),
+    svd_weights=(0.5, 0.6, 0.7),
+):
     """
     Compute final hybrid recommendation score with dynamic weighting.
-
-    Parameters:
-    qualified_movies (DataFrame): Movies selected for recommendation.
-    user_ratings_count (int): Number of ratings given by the user.
-
-    Returns:
-    DataFrame: Movies DataFrame with hybrid scores.
     """
-    # Dynamic Weighting
-    if user_ratings_count < 10:
-        svd_weight = 0.5
-    elif user_ratings_count < 50:
-        svd_weight = 0.6
+    if user_ratings_count < svd_thresholds[0]:
+        svd_weight = svd_weights[0]
+    elif user_ratings_count < svd_thresholds[1]:
+        svd_weight = svd_weights[1]
     else:
-        svd_weight = 0.7
+        svd_weight = svd_weights[2]
 
     imdb_weight = 1 - svd_weight
     qualified_movies["final_score"] = (
@@ -195,27 +193,18 @@ def compute_hybrid_score(qualified_movies, user_ratings_count, recency_weight, t
         + qualified_movies["recency_score"] * recency_weight
     )
 
-    # Sort & Return
-    return qualified_movies.sort_values("final_score", ascending=False).head(
-        min(top_n, len(qualified_movies))
-    )[
-        [
-            "id",
-            "title",
-            "release_date",
-            "final_score",
-            "poster_path"
-        ]
+    return qualified_movies.sort_values("final_score", ascending=False).head(top_n)[
+        ["id", "title", "release_date", "final_score", "poster_path"]
     ]
 
 
-def get_top_similar_movies(movie_index, count_matrix=count_matrix):
+def get_top_similar_movies(movie_index, count_matrix):
     # Compute similarity scores dynamically (only one movie vector at a time)
     movie_vector = count_matrix[movie_index]
     similarity_scores = cosine_similarity(movie_vector, count_matrix).flatten()
 
     # Get indices of top similar movies (excluding the movie itself)
-    similar_indices = similarity_scores.argsort()[::-1][1 : 102]
+    similar_indices = similarity_scores.argsort()[::-1][1:102]
 
     # Return similar movie indices and their similarity scores
     return similar_indices, similarity_scores[similar_indices]
@@ -223,52 +212,37 @@ def get_top_similar_movies(movie_index, count_matrix=count_matrix):
 
 def _apply_recency_boost(df):
     """
-    Helper function to parse release_date into a numeric year,
-    then create a 0–1 scaled 'recency_score' column in df.
+    Helper function to apply recency boost.
     """
-    # Parse year from release_date
     df["year"] = pd.to_datetime(df["release_date"], errors="coerce").dt.year
-
-    # Fallback for rows with missing/invalid release_date
     df["year"] = df["year"].fillna(df["year"].min())
-
-    # Scale years to [0,1] range
     min_year = df["year"].min()
     max_year = df["year"].max()
     year_range = max_year - min_year if max_year != min_year else 1
-
     df["recency_score"] = (df["year"] - min_year) / year_range
-
     return df
 
 
 def improved_hybrid_recommendations(
     user_id,
     title,
-    best_svd_model=best_svd1,
-    new_df=new_df,
-    ratings_df=ratings_df,
-    links_df=links_df,
     top_n=10,
+    ratings_df=None,
+    links_df=None,
+    new_df=None,
+    best_svd_model=None,
+    count_matrix=None,
+    indices=None,
     popularity_weight=0.15,
     similarity_weight=0.85,
     recency_weight=0.2,
 ):
     """
     Generate hybrid recommendations combining content-based and collaborative filtering.
-
-    Parameters:
-    user_id (int): User ID for whom recommendations are generated.
-    title (str): Movie title used for reference.
-    top_n (int): Number of top recommendations (default 10).
-    popularity_weight (float): Weight of IMDb rating (default 0.15).
-    similarity_weight (float): Weight of content similarity (default 0.85).
-
-    Returns:
-    DataFrame: Top N recommended movies sorted by hybrid score.
     """
+    if indices is None:
+        raise ValueError("Indices mapping is required.")
 
-    # Validate if title exists
     index = indices.get(title, None)
     if index is None:
         raise ValueError(f"Movie title '{title}' not found in the dataset.")
@@ -279,7 +253,7 @@ def improved_hybrid_recommendations(
     )
 
     recommended_movies = new_df.iloc[similar_movie_indices][
-        ["title", "id", "vote_count", "vote_average", "release_date","poster_path"]
+        ["title", "id", "vote_count", "vote_average", "release_date", "poster_path"]
     ].copy()
 
     recommended_movies["vote_count"] = (
@@ -296,9 +270,6 @@ def improved_hybrid_recommendations(
         lambda x: weighted_rating(x, C, m), axis=1
     )
 
-    # # Filter low vote count movies
-    # qualified_movies = recommended_movies[recommended_movies["vote_count"] >= m].copy()
-
     qualified_movies = recommended_movies.copy()
     qualified_movies.reset_index(drop=True, inplace=True)
 
@@ -309,7 +280,6 @@ def improved_hybrid_recommendations(
             "similarity_score": similarity_scores,
         }
     )
-
     qualified_movies = recommended_movies.merge(similarity_df, on="id", how="left")
     qualified_movies["similarity_score"] = qualified_movies["similarity_score"].fillna(
         qualified_movies["similarity_score"].min()
@@ -317,15 +287,14 @@ def improved_hybrid_recommendations(
 
     # Cold-start handling for new users
     if user_id not in ratings_df["userId"].unique():
-        # Incorporate recency
         qualified_movies = _apply_recency_boost(qualified_movies)
-
         return handle_new_user(
             qualified_movies,
             top_n,
             popularity_weight,
             similarity_weight,
             recency_weight,
+            new_df,
         )
 
     # Match MovieLens IDs before using SVD
@@ -344,136 +313,55 @@ def improved_hybrid_recommendations(
 
     return qualified_movies
 
-
 # TMDb API Key
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
-
 
 def get_movie_poster(movie):
     """
     Fetch movie poster URL from TMDb API.
-
-    Parameters:
-    movie_id (int): The ID of the movie for which the poster is to be fetched.
-
-    Returns:
-    str: The complete URL of the movie poster if available, otherwise None.
     """
-
     if movie["poster_path"]:
         return f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
     else:
         url = f"https://api.themoviedb.org/3/movie/{movie['id']}?api_key={TMDB_API_KEY}&language=en-US"
         response = requests.get(url)
         movie_data = response.json()
-        
         if "poster_path" in movie_data and movie_data["poster_path"]:
             return f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
     return None
 
 # Genre-Based Recommender
-C = new_df['vote_average'].mean()
-m = new_df['vote_count'].quantile(0.95)
+C = None  # Will be set after loading new_df
+m = None  # Will be set after loading new_df
 current_year = dt.datetime.now().year
 
 def preprocess_movies(df):
     """
-    Preprocesses a DataFrame containing movie data by extracting genres as lowercase lists 
-    and converting release dates to years.
-
-    This function ensures that the 'genres' column is properly formatted as a list of lowercase 
-    genre names and extracts the release year from the 'release_date' column.
-
-    Args:
-        df (pd.DataFrame): A DataFrame containing movie data with at least 'genres' and 'release_date' columns.
-
-    Returns:
-        pd.DataFrame: A processed DataFrame with two new columns:
-            - 'genres_list': A list of lowercase genre names.
-            - 'release_year': The extracted release year as an integer.
+    Preprocesses a DataFrame containing movie data.
     """
-    
     df = df.copy()
-
-    # Ensure genres are properly formatted as lists
-    def process_genres(x):
-        if isinstance(x, list):  # Already a list, just lowercase it
-            return [g.lower() for g in x]
-        if isinstance(x, str):  # If stored as string, attempt conversion
-            try:
-                genres = eval(x)  # Convert string to list
-                return [g.lower() for g in genres] if isinstance(genres, list) else []
-            except (SyntaxError, ValueError):
-                return []
-        return []  # Return empty list for NaN or unexpected types
-
-    df['genres_list'] = df['genres'].apply(process_genres)
+    df['genres_list'] = df['genres'].apply(lambda x: [g.lower() for g in eval(x)] if isinstance(x, str) else [])
     df['release_year'] = pd.to_datetime(df['release_date'], errors='coerce').dt.year
-
     return df
 
-new_df2 = preprocess_movies(new_df)
-
-
-
-def genre_based_recommender(genre, df=new_df2, top_n=100):
-
+def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rate=0.02):
     """
-    Recommends top movies based on a given genre, prioritizing relevance and quality.
-
-    This function filters movies containing the specified genre, applies a weighted rating formula, 
-    accounts for the genre's position within a movie's genre list, applies an age penalty for older movies, 
-    and ranks the results based on multiple factors.
-
-    Args:
-        genre (str): The target genre for recommendations.
-        df (pd.DataFrame, optional): A DataFrame containing movie data with columns:
-            - 'genres_list': A list of lowercase genre names.
-            - 'vote_count': The number of votes received by the movie.
-            - 'vote_average': The average rating of the movie.
-            - 'release_year': The year of release for the movie.
-            - 'popularity': The popularity score of the movie.
-            - 'poster_path': The URL path to the movie's poster.
-            - 'title': The title of the movie.
-            - 'release_date': The release date of the movie.
-        top_n (int, optional): The number of top recommendations to return. Defaults to 100.
-
-    Returns:
-        pd.DataFrame: A DataFrame containing the top recommended movies with columns:
-            - 'poster_path': The URL path to the movie's poster.
-            - 'title': The movie title.
-            - 'release_date': The movie's release date.
-
-    Notes:
-        - The function applies a weighted rating formula that balances vote count and average rating.
-        - A genre index is used to prioritize movies where the genre appears earlier in the list.
-        - An age penalty is applied to reduce the weight of older movies.
-        - The final ranking considers genre relevance, adjusted score, and popularity.
+    Recommends top movies based on a given genre.
     """
-    # Insure that all genres are in the same alphabetical case
+    global C, m
+    if C is None:
+        C = df['vote_average'].mean()
+    if m is None:
+        m = df['vote_count'].quantile(quantile)
+    
     genre = genre.lower()
-
-    # Filter movies containing the genre efficiently
     genre_movies = df[df['genres_list'].apply(lambda genres: genre in genres)].copy()
-
-    # Vectorized calculations for weighted rating
-    v = genre_movies['vote_count']
-    R = genre_movies['vote_average']
-    genre_movies['weighted_rating'] = (v / (v + m) * R) + (m / (v + m) * C)
-
-    # Calculate genre index for prioritization
-    genre_movies['genre_index'] = genre_movies['genres_list'].apply(lambda x: x.index(genre))
-
-    # Apply age penalty (vectorized)
-    genre_movies['age_penalty'] = (1 - 0.02 * (current_year - genre_movies['release_year'])).clip(lower=0.5)
-
-    # Adjust final score
+    genre_movies['weighted_rating'] = genre_movies.apply(lambda x: weighted_rating(x, C, m), axis=1)    
+    genre_movies['genre_index'] = genre_movies['genres_list'].apply(lambda x: x.index(genre) if genre in x else float('inf'))
+    genre_movies['age_penalty'] = (1 - age_penalty_rate * (current_year - genre_movies['release_year'])).clip(lower=0.5)
     genre_movies['adjusted_score'] = genre_movies['weighted_rating'] * genre_movies['age_penalty']
-
-    # Sort results by relevance and quality
     top_movies = genre_movies.sort_values(
         by=['genre_index', 'adjusted_score', 'popularity'],
         ascending=[True, False, False]
     ).head(top_n)
-
-    return top_movies[['id','poster_path', 'title', 'release_date']]
+    return top_movies[['id', 'poster_path', 'title', 'release_date']]
