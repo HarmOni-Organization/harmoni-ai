@@ -31,8 +31,8 @@ To set up and run the HarmOni Movie Recommendation Service using Docker, follow 
 
 1. **Clone the repository**:
    ```bash
-   git clone https://github.com/cu2021/HarmOni-Movie-Recommendation-Service.git
-   cd HarmOni-Movie-Recommendation-Service
+   git clone https://github.com/HarmOni-Organization/harmoni-ai.git
+   cd harmoni-ai
    ```
 
 2. **Build and Run the Docker Container**:
