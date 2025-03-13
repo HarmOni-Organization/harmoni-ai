@@ -1,86 +1,196 @@
-# HarmOni Movie Recommendation Service
+# Harmoni AI - Hybrid Movie Recommendation System
 
-HarmOni Movie Recommendation Service is a sophisticated movie recommendation system that provides personalized movie suggestions based on user preferences and popularity. Developed using Python and Flask, it employs a hybrid recommendation approach integrating content-based filtering, Singular Value Decomposition (SVD) collaborative filtering, and popularity filtering from the Internet Movie Database ([IMDB](https://www.imdb.com/)).
+A sophisticated movie recommendation system that combines content-based and collaborative filtering approaches to provide personalized movie recommendations. The system uses a hybrid approach that leverages both user preferences and movie content to generate accurate and diverse recommendations.
 
 ## Features
 
-- **Personalized Recommendations**: Generates tailored movie suggestions by combining content similarity and user preferences.
-- **Movie Poster Retrieval**: Fetches movie posters using the TMDb API.
-- **Lightweight Flask API**: Delivers recommendations through a RESTful API.
-- **User-Friendly Interface**: Provides a simple HTML-based frontend for user interaction and recommendation display.
-- **Dockerized Deployment**: Easily run the application as a containerized service.
+- **Hybrid Recommendation Engine**
 
-## Project Structure
+  - Content-based filtering using movie features
+  - Collaborative filtering using SVD (Singular Value Decomposition)
+  - Dynamic weighting based on user interaction
+  - Cold-start handling for new users
 
-The repository is organized as follows:
+- **Genre-Based Recommendations**
 
-- `app.py`: Main Flask application file.
-- `data/`: Contains datasets and precomputed similarity matrices.
-- `models/`: Stores the pre-trained SVD model for collaborative filtering.
-- `my_modules/`: Houses core functionalities, including recommendation logic.
-- `static/`: Contains frontend assets such as JavaScript and CSS.
-- `templates/`: Stores HTML templates for the front-end.
-- `venv/`: Virtual environment directory (excluded from Git tracking).
-- `requirements.txt`: Lists required Python dependencies for the project.
-- `Dockerfile`: Defines the containerized environment for deployment.
-- `docker-compose.yml`: Configuration for running the service with Docker.
+  - Genre-specific movie suggestions
+  - Weighted scoring system
+  - Recency bias for newer movies
+  - Popularity consideration
 
-## Installation (Dockerized Deployment)
+- **Movie Poster Integration**
 
-To set up and run the HarmOni Movie Recommendation Service using Docker, follow these steps:
+  - Automatic poster fetching from TMDb
+  - Caching for improved performance
+  - Fallback handling for missing posters
 
-1. **Clone the repository**:
-   ```bash
-   git clone https://github.com/cu2021/HarmOni-Movie-Recommendation-Service.git
-   cd HarmOni-Movie-Recommendation-Service
-   ```
+- **RESTful API**
+  - Simple and intuitive endpoints
+  - Input validation and error handling
+  - Rate limiting and caching
+  - Comprehensive error messages
 
-2. **Build and Run the Docker Container**:
-   ```bash
-   docker build -t harmoni-movie-recommendation .
-   docker run -p 5000:5000 harmoni-movie-recommendation
-   ```
-   The service will now be running locally. Access it in your web browser at `http://172.17.0.2:5000/`.
+## Prerequisites
 
-Alternatively, you can use Docker Compose for easier management:
+- Python 3.8+
+- Docker and Docker Compose
+- TMDb API key
 
-   ```bash
-   docker-compose up --build
-   ```
+## Environment Variables
 
-## Usage
+Create a `.env` file in the project root with the following variables:
 
-- **Homepage**: Enter a User ID and a Movie Title to receive recommendations.
-- **API Endpoint**:
-   - Use `/recommend` with the following query parameters:
-     - `userId`: The user ID.
-     - `title`: The movie title.
-     - `topN`: The number of recommendations (default: 10).
+```env
+FLASK_APP=app.py
+FLASK_ENV=development
+TMDB_API_KEY=your_tmdb_api_key
+DATA_DIR=data
+MODEL_DIR=models
+```
 
-     Example API request:
-     ```
-     http://172.17.0.2:5000/recommend?userId=1&title=Inception&topN=10
-     ```
-   - Use `/genreBasedRecommendation` with the following query parameters:
-      - `genre`: The genre you like.
-      - `topN`:  The number of recommendations (default: 100).
-     
-     Example API request:
-     ```
-     http://172.17.0.2:5000/genreBasedRecommendation?genre=Animation&topN=21
-     ```
+## Installation
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/yourusername/harmoni-ai.git
+cd harmoni-ai
+```
+
+2. Build and start the Docker containers:
+
+```bash
+docker-compose up --build
+```
+
+The application will be available at `http://localhost:5000`
+
+## API Endpoints
+
+### 1. Hybrid Movie Recommendations
+
+```http
+GET /recommend
+```
+
+Generate personalized movie recommendations based on user ID and a reference movie.
+
+**Query Parameters:**
+
+- `userId` (required): Integer ID of the user
+- `title` (required): Title of the reference movie
+- `topN` (optional): Number of recommendations (default: 10, max: 50)
+
+**Example Response:**
+
+```json
+{
+  "status": true,
+  "data": {
+    "userId": 1,
+    "title": "The Matrix",
+    "recommendedMovies": [
+      {
+        "id": 603,
+        "title": "The Matrix",
+        "release_date": "1999-03-31",
+        "final_score": 0.95,
+        "poster_url": "https://image.tmdb.org/t/p/w500/..."
+      }
+    ]
+  }
+}
+```
+
+### 2. Genre-Based Recommendations
+
+```http
+GET /genreBasedRecommendation
+```
+
+Get movie recommendations based on a specific genre.
+
+**Query Parameters:**
+
+- `genre` (required): Movie genre (e.g., "Action", "Drama")
+- `topN` (optional): Number of recommendations (default: 100, max: 100)
+
+**Example Response:**
+
+```json
+{
+  "status": true,
+  "message": "",
+  "data": {
+    "genre": "Action",
+    "recommendedMovies": [
+      {
+        "id": 550,
+        "title": "Fight Club",
+        "release_date": "1999-10-15",
+        "poster_url": "https://image.tmdb.org/t/p/w500/..."
+      }
+    ]
+  }
+}
+```
+
+## Error Handling
+
+The API returns appropriate HTTP status codes and error messages:
+
+- `200`: Successful request
+- `400`: Invalid input parameters
+- `500`: Internal server error
+
+**Example Error Response:**
+
+```json
+{
+  "status": false,
+  "message": "Invalid characters in title"
+}
+```
+
+## Development
+
+### Running Tests
+
+```bash
+docker-compose run test
+```
+
+### Project Structure
+
+```
+harmoni-ai/
+├── app.py                 # Main Flask application
+├── my_modules/
+│   └── myModule.py       # Core recommendation logic
+├── tests/
+│   └── test_app.py       # Test suite
+├── data/                 # Movie datasets
+├── models/              # Trained models
+├── templates/           # HTML templates
+├── Dockerfile          # Docker configuration
+├── docker-compose.yml  # Docker Compose configuration
+└── requirements.txt    # Python dependencies
+```
 
 ## Contributing
 
-Contributions are welcome! To contribute:
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-1. Fork the repository.
-2. Create a new branch: `git checkout -b feature/YourFeatureName`.
-3. Implement your changes.
-4. Commit the changes: `git commit -m 'Add feature: YourFeatureName'`.
-5. Push to the branch: `git push origin feature/YourFeatureName`.
-6. Open a pull request for review.
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgments
 
-Special thanks to the open-source community for their invaluable resources.
+- MovieLens dataset for providing the movie ratings data
+- TMDb API for movie metadata and posters
+- Scikit-learn and Surprise libraries for machine learning components

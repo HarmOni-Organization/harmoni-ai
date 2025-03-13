@@ -1,3 +1,33 @@
+"""
+Hybrid Movie Recommendation System
+
+This module implements a Flask-based web application that provides movie recommendations
+using a hybrid approach combining content-based and collaborative filtering techniques.
+The system offers two main recommendation endpoints:
+1. Hybrid recommendations based on user ID and movie title
+2. Genre-based recommendations
+
+The application uses:
+- TMDb API for movie metadata and posters
+- Pre-trained SVD model for collaborative filtering
+- Content-based similarity using movie features
+- Caching for improved performance
+
+Environment Variables:
+    - FLASK_APP: The Flask application entry point
+    - FLASK_ENV: The Flask environment (development/production)
+    - TMDB_API_KEY: API key for TMDb API
+    - DATA_DIR: Directory containing movie datasets
+    - MODEL_DIR: Directory containing trained models
+
+Dependencies:
+    - Flask: Web framework
+    - pandas: Data manipulation
+    - numpy: Numerical computations
+    - scikit-learn: Machine learning utilities
+    - python-dotenv: Environment variable management
+"""
+
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from my_modules.myModule import (
@@ -12,6 +42,7 @@ from my_modules.myModule import (
 )
 import logging
 from functools import lru_cache
+import re
 
 # Load environment variables
 load_dotenv()
@@ -29,28 +60,81 @@ count_matrix = load_count_matrix()
 indices = create_indices(new_df)
 new_df2 = preprocess_movies(new_df)
 
+def validate_input(text):
+    """
+    Validate input text for special characters and unicode.
+
+    This function checks if the input text contains only allowed characters:
+    - Alphanumeric characters
+    - Spaces
+    - Common punctuation marks (-'":,.!?())
+
+    Parameters:
+        text (str): The input text to validate
+
+    Returns:
+        bool: True if text contains only allowed characters, False otherwise
+    """
+    # Allow only alphanumeric characters, spaces, and common punctuation
+    pattern = r'^[a-zA-Z0-9\s\-\'\":,.!?()]+$'
+    return bool(re.match(pattern, text))
+
 # Caching for movie posters
 @lru_cache(maxsize=1000)
 def cached_get_movie_poster(movie_id, poster_path):
-    movie = {"id": movie_id, "poster_path": poster_path}
-    return get_movie_poster(movie)
+    """
+    Retrieve and cache movie poster URLs.
 
+    This function uses LRU caching to efficiently retrieve movie poster URLs,
+    reducing API calls to TMDb. It handles missing posters gracefully.
+
+    Parameters:
+        movie_id (int): The TMDb ID of the movie
+        poster_path (str): The path to the movie poster
+
+    Returns:
+        str: URL to the movie poster image, or empty string if not found
+    """
+    movie = {"id": movie_id, "poster_path": poster_path}
+    return get_movie_poster(movie) or ""  # Return empty string if poster not found
 
 @app.route("/")
 def home():
     """
-    Render the homepage.
+    Render the homepage of the application.
+
+    This route serves the main landing page of the movie recommendation system.
+    It displays the application title and provides access to the recommendation features.
 
     Returns:
-    HTML page: The index.html template.
+        HTML: The rendered index.html template
     """
     return render_template("index.html")
-
 
 @app.route("/recommend", methods=["GET"])
 def recommend():
     """
-    Generate movie recommendations for a given user and movie title.
+    Generate personalized movie recommendations based on user ID and movie title.
+
+    This endpoint combines content-based and collaborative filtering to provide
+    personalized movie recommendations. It handles various edge cases and validates
+    input parameters.
+
+    Query Parameters:
+        userId (int): The ID of the user requesting recommendations
+        title (str): The title of the reference movie
+        topN (int, optional): Number of recommendations to return. Defaults to 10.
+
+    Returns:
+        JSON: Response containing:
+            - status (bool): Success status of the request
+            - data (dict): Contains userId, title, and recommendedMovies
+            - message (str, optional): Error message if status is False
+
+    Status Codes:
+        200: Successful recommendation
+        400: Invalid input parameters
+        500: Internal server error
     """
     try:
         userId = request.args.get("userId")
@@ -60,8 +144,21 @@ def recommend():
         if not userId or not title:
             return jsonify({"status": False, "message": "userId and title are required"}), 400
 
-        userId = int(userId)
-        topN = min(int(topN), 50)  # Cap at 50 for performance
+        # Validate title for special characters
+        if not validate_input(title):
+            return jsonify({"status": False, "message": "Invalid characters in title"}), 400
+
+        try:
+            userId = int(userId)
+            if userId < 0:
+                return jsonify({"status": False, "message": "userId must be non-negative"}), 400
+        except ValueError:
+            return jsonify({"status": False, "message": "userId must be a valid integer"}), 400
+
+        try:
+            topN = max(1, min(int(topN), 50))  # Ensure minimum of 1, maximum of 50 for performance
+        except ValueError:
+            topN = 10  # Default to 10 if invalid
 
         recommendations = improved_hybrid_recommendations(
             user_id=userId,
@@ -74,9 +171,14 @@ def recommend():
             count_matrix=count_matrix,
             indices=indices,
         )
+        
+        if recommendations is None or recommendations.empty:
+            return jsonify({"status": True, "data": {"userId": userId, "title": title, "recommendedMovies": []}}), 200
+
         result = recommendations.to_dict(orient="records")
         for movie in result:
             movie["poster_url"] = cached_get_movie_poster(movie["id"], movie["poster_path"])
+        
         logging.info(f"Recommendations generated for user {userId}, title {title}")
         return jsonify({"status": True, "data": {"userId": userId, "title": title, "recommendedMovies": result}})
     except ValueError as ve:
@@ -86,23 +188,57 @@ def recommend():
         logging.error(f"Server error: {e}")
         return jsonify({"status": False, "message": "Internal server error"}), 500
 
-
 @app.route("/genreBasedRecommendation", methods=["GET"])
 def genreBasedRecommendation():
     """
-    Generate movie recommendations for a given genre.
+    Generate movie recommendations based on a specific genre.
+
+    This endpoint provides genre-specific movie recommendations using weighted
+    ratings and recency bias. It handles genre validation and case sensitivity.
+
+    Query Parameters:
+        genre (str): The genre to base recommendations on
+        topN (int, optional): Number of recommendations to return. Defaults to 100.
+
+    Returns:
+        JSON: Response containing:
+            - status (bool): Success status of the request
+            - data (dict): Contains genre and recommendedMovies
+            - message (str, optional): Error message if status is False
+
+    Status Codes:
+        200: Successful recommendation
+        400: Invalid genre or no movies found
+        500: Internal server error
     """
     try:
         genre = request.args.get("genre")
-        topN = int(request.args.get("topN", 100))
+        topN = request.args.get("topN", "100")
 
         if not genre:
-            return jsonify({"error": "Movie genre is required"}), 400
+            return jsonify({"status": False, "message": "Movie genre is required"}), 400
+
+        # Validate genre for special characters
+        if not validate_input(genre):
+            return jsonify({"status": False, "message": "Invalid characters in genre"}), 400
+
+        try:
+            topN = max(1, min(int(topN), 100))  # Ensure minimum of 1, maximum of 100
+        except ValueError:
+            topN = 100  # Default to 100 if invalid
+
+        # Convert genre to title case for consistency
+        genre = genre.title()
 
         recommendations = genre_based_recommender(genre=genre, df=new_df2, top_n=topN)
+        
+        if recommendations is None or recommendations.empty:
+            return jsonify({"status": False, "message": f"No movies found for genre: {genre}"}), 400
+
         result = recommendations.to_dict(orient="records")
         for movie in result:
             movie["poster_url"] = cached_get_movie_poster(movie["id"], movie["poster_path"])
+        
         return jsonify(
             {
                 "status": True,
