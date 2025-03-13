@@ -21,9 +21,15 @@ def load_data():
     """
     Load datasets for MovieLens, TMDb links, and movie metadata.
     """
-    ratings_df = pd.read_csv(os.getenv("RATINGS_PATH"))
-    links_df = pd.read_csv(os.getenv("LINKS_PATH"))
-    new_df = pd.read_csv(os.getenv("MOVIES_PATH"))
+    base_path = os.path.dirname(__file__)
+    ratings_small_path = os.path.abspath(os.path.join(base_path, os.getenv("RATINGS_PATH")))
+    links_small_path = os.path.abspath(os.path.join(base_path, os.getenv("LINKS_PATH")))
+    new_df_path = os.path.abspath(os.path.join(base_path, os.getenv("MOVIES_PATH")))
+
+    
+    ratings_df = pd.read_csv(ratings_small_path)
+    links_df = pd.read_csv(links_small_path)
+    new_df = pd.read_csv(new_df_path)
     return ratings_df, links_df, new_df
 
 
@@ -41,7 +47,8 @@ def load_model():
     """
     Load pre-trained SVD model for collaborative filtering.
     """
-    with open(os.getenv("SVD_MODEL_PATH"), "rb") as file:
+    model_path = os.path.join(os.path.dirname(__file__), os.getenv("SVD_MODEL_PATH"))
+    with open(model_path, "rb") as file:
         return pickle.load(file)
 
 
@@ -50,7 +57,8 @@ def load_count_matrix():
     """
     Load precomputed count matrix.
     """
-    return load_npz(os.getenv("COUNT_MATRIX_PATH", "data/count_matrix.npz"))
+    count_matrix_path = os.path.join(os.path.dirname(__file__), os.getenv("COUNT_MATRIX_PATH"))
+    return load_npz(count_matrix_path)
 
 
 # Create Movie Index Mapping (Title to Index)
