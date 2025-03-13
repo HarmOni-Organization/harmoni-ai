@@ -18,3 +18,22 @@ services:
       - ./my_modules:/app/my_modules
       - ./app.py:/app/app.py
       - ./.env:/app/.env
+      - ./tests:/app/tests
+
+  test:
+    build: .
+    environment:
+      - FLASK_APP=app.py
+      - FLASK_ENV=testing
+      - DATA_DIR=/app/data
+      - MODEL_DIR=/app/models
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+      - ./templates:/app/templates
+      - ./static:/app/static
+      - ./my_modules:/app/my_modules
+      - ./app.py:/app/app.py
+      - ./.env:/app/.env
+      - ./tests:/app/tests
+    command: pytest -v --cov=app --cov=my_modules tests/

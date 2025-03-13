@@ -12,17 +12,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends gcc python3-dev
 
 # Create necessary directories
-RUN mkdir -p /app/data /app/models /app/templates /app/static /app/my_modules
+RUN mkdir -p /app/data /app/models /app/templates /app/static /app/my_modules /app/tests
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir pytest pytest-cov
 
 # Copy application files
 COPY app.py .
 COPY my_modules/ ./my_modules/
 COPY templates/ ./templates/
 COPY static/ ./static/
+COPY tests/ ./tests/
 
 # Set proper permissions
 RUN chmod -R 755 /app
