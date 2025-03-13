@@ -2,6 +2,24 @@
 
 A sophisticated movie recommendation system that combines content-based and collaborative filtering approaches to provide personalized movie recommendations. The system uses a hybrid approach that leverages both user preferences and movie content to generate accurate and diverse recommendations.
 
+## Project Structure
+
+```
+harmoni-ai/
+├── app.py                 # Main Flask application
+├── my_modules/
+│   └── myModule.py       # Core recommendation logic
+├── tests/
+│   └── test_app.py       # Test suite
+├── data/                 # Movie datasets
+├── models/              # Trained models
+├── templates/           # HTML templates
+├── Dockerfile          # Docker configuration
+├── docker-compose.yml  # Docker Compose configuration
+└── requirements.txt    # Python dependencies
+```
+
+
 ## Features
 
 - **Hybrid Recommendation Engine**
@@ -158,23 +176,6 @@ The API returns appropriate HTTP status codes and error messages:
 
 ```bash
 docker-compose run test
-```
-
-### Project Structure
-
-```
-harmoni-ai/
-├── app.py                 # Main Flask application
-├── my_modules/
-│   └── myModule.py       # Core recommendation logic
-├── tests/
-│   └── test_app.py       # Test suite
-├── data/                 # Movie datasets
-├── models/              # Trained models
-├── templates/           # HTML templates
-├── Dockerfile          # Docker configuration
-├── docker-compose.yml  # Docker Compose configuration
-└── requirements.txt    # Python dependencies
 ```
 
 ## Contributing
