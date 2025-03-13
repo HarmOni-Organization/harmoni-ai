@@ -1,33 +1,3 @@
-"""
-Hybrid Movie Recommendation System
-
-This module implements a Flask-based web application that provides movie recommendations
-using a hybrid approach combining content-based and collaborative filtering techniques.
-The system offers two main recommendation endpoints:
-1. Hybrid recommendations based on user ID and movie title
-2. Genre-based recommendations
-
-The application uses:
-- TMDb API for movie metadata and posters
-- Pre-trained SVD model for collaborative filtering
-- Content-based similarity using movie features
-- Caching for improved performance
-
-Environment Variables:
-    - FLASK_APP: The Flask application entry point
-    - FLASK_ENV: The Flask environment (development/production)
-    - TMDB_API_KEY: API key for TMDb API
-    - DATA_DIR: Directory containing movie datasets
-    - MODEL_DIR: Directory containing trained models
-
-Dependencies:
-    - Flask: Web framework
-    - pandas: Data manipulation
-    - numpy: Numerical computations
-    - scikit-learn: Machine learning utilities
-    - python-dotenv: Environment variable management
-"""
-
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
 from my_modules.myModule import (

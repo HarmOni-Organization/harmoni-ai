@@ -1,24 +1,3 @@
-"""
-Test Suite for Hybrid Movie Recommendation System
-
-This module contains comprehensive tests for the movie recommendation system,
-covering all major components and edge cases. The tests are organized into
-categories using pytest markers for better organization and selective execution.
-
-Test Categories:
-    - basic: Basic route and endpoint tests
-    - recommendations: Movie recommendation functionality tests
-    - genre: Genre-based recommendation tests
-    - posters: Movie poster retrieval tests
-    - errors: Error handling and edge cases
-    - edge: Edge case and boundary condition tests
-
-Dependencies:
-    - pytest: Testing framework
-    - pytest-cov: Coverage reporting
-    - unittest.mock: Mocking utilities
-"""
-
 import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
