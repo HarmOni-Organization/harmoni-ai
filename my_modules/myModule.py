@@ -9,6 +9,7 @@ from scipy.sparse import load_npz
 from surprise import PredictionImpossible
 from dotenv import load_dotenv
 from rapidfuzz import process, fuzz
+from ast import literal_eval
 import requests
 
 # Load environment variables
@@ -39,6 +40,10 @@ def load_data():
     )
     links_small_path = os.path.abspath(os.path.join(base_path, os.getenv("LINKS_PATH")))
     new_df_path = os.path.abspath(os.path.join(base_path, os.getenv("MOVIES_PATH")))
+    
+    for path in [ratings_small_path, links_small_path, new_df_path]:
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Data file not found: {path}")
 
     ratings_df = pd.read_csv(ratings_small_path)
     links_df = pd.read_csv(links_small_path)
@@ -350,79 +355,71 @@ def _apply_recency_boost(df):
     df["recency_score"] = (df["year"] - min_year) / year_range
     return df
 
+
 def fuzzy_title_match(title, new_df):
-    """
-    Enhanced fuzzy title matching with comprehensive error handling
-    
-    Args:
-        title: Input title to match
-        new_df: DataFrame containing movie titles
-        
-    Returns:
-        Tuple of (matched_title, index)
-        
-    Raises:
-        ValueError: If no match found with suggestions
-        KeyError: If required columns are missing
-        TypeError: For invalid input types
-    """
     try:
-        # Validate input dataframe structure
-        if not isinstance(new_df, pd.DataFrame):
-            raise TypeError("Expected pandas DataFrame for new_df")
-            
-        if 'title' not in new_df.columns:
-            raise KeyError("DataFrame is missing required 'title' column")
-            
-        titles_list = new_df['title'].tolist()
-        
-        # Check for empty dataset
-        if not titles_list:
-            raise ValueError("No titles available in the dataset")
+        titles_list = new_df["title"].tolist()
+        normalized_titles = [str(t).lower() for t in titles_list]
+        normalized_input = title.lower()
 
-        # Perform fuzzy matching with timeout for safety
+        # Use a stricter score cutoff
         match_result = process.extractOne(
-            title, 
-            titles_list,
-            scorer=fuzz.WRatio, 
-            score_cutoff=80,
+            normalized_input,
+            normalized_titles,
+            scorer=fuzz.WRatio,
+            score_cutoff=95,  # Increased from 80 to 95
             processor=None,
-            score_hint=0  # Initial score estimate
         )
-
-        logging.debug(f"Fuzzy match result: {match_result}")
 
         if match_result:
-            best_match, score, index = match_result
-            
-            # Validate index range
-            if index < 0 or index >= len(new_df):
-                raise IndexError(f"Invalid index {index} returned for dataframe of length {len(new_df)}")
-                
-            logging.info(f"Fuzzy match successful: '{best_match}' (score: {score})")
-            return best_match, index
-
-        # Handle no good matches
-        suggestions = process.extract(
-            title,
-            titles_list,
-            limit=3,
-            scorer=fuzz.WRatio,
-            processor=None
-        )
-        
-        # Filter and format suggestions
-        suggestion_list = [f"{s[0]} ({s[1]}%)" for s in suggestions if s[1] > 50]
-        error_msg = (f"Movie '{title}' not found. Similar titles: {', '.join(suggestion_list)}" 
-                    if suggestion_list 
-                    else f"Movie '{title}' not found in database")
-
-        logging.warning(error_msg)
-        raise ValueError(error_msg)
+            best_norm_match, score, index = match_result
+            original_title = titles_list[index]
+            return original_title, index
+        else:
+            # If no match is found above the threshold, raise an error
+            suggestions = process.extract(normalized_input, normalized_titles, limit=3, scorer=fuzz.WRatio)
+            suggestion_list = [f"{titles_list[s[2]]} ({s[1]}%)" for s in suggestions if s[1] > 50]
+            error_msg = (
+                f"'{title}' not found. Similar: {', '.join(suggestion_list)}"
+                if suggestion_list
+                else f"'{title}' not found in database"
+            )
+            raise ValueError(error_msg)
 
     except Exception as e:
-        logging.error(f"Title matching failed for '{title}': {str(e)}")
-        raise  e
+        logging.error(f"Title matching error: {str(e)}")
+        raise e
+
+def compute_weighted_ratings(movies_df):
+    """Compute IMDb weighted ratings for a DataFrame of movies."""
+    C = movies_df["vote_average"].mean()
+    m = movies_df["vote_count"].quantile(0.65)
+    movies_df["weighted_rating"] = movies_df.apply(lambda x: weighted_rating(x, C, m), axis=1)
+    return movies_df, C
+
+def find_similar_movies(title, new_df, count_matrix):
+    """Find movies similar to the given title using fuzzy matching and cosine similarity."""
+    try:
+        _, index = fuzzy_title_match(title=title, new_df=new_df)
+    except ValueError as e:
+        return None, None, str(e)
+    except Exception as e:
+        logging.critical(f"Unexpected error during title matching: {e}")
+        raise e
+
+    similar_movie_indices, similarity_scores = get_top_similar_movies(
+        index, count_matrix
+    )
+    recommended_movies = new_df.iloc[similar_movie_indices][
+        ["title", "id", "vote_count", "vote_average", "release_date", "poster_path"]
+    ].copy()
+    recommended_movies["vote_count"] = (
+        recommended_movies["vote_count"].fillna(0).astype(int)
+    )
+    recommended_movies["vote_average"] = (
+        recommended_movies["vote_average"].fillna(0).astype(float)
+    )
+    return recommended_movies, similarity_scores, None
 
 def improved_hybrid_recommendations(
     user_id,
@@ -471,82 +468,40 @@ def improved_hybrid_recommendations(
     Raises:
         ValueError: If movie title is not found or required parameters are missing
     """
+    result = find_similar_movies(title, new_df, count_matrix)
+    if result[0] is None:
+        return None, result[2]  # Return error message
+    
+    recommended_movies, similarity_scores, _ = result
 
-    try:
-        _, index = fuzzy_title_match(title=title, new_df=new_df)
-    except (ValueError, KeyError) as e:
-        # Handle known error cases
-        print(f"Error finding movie: {str(e)}")
-    except Exception as e:
-        # Handle unexpected errors
-        logging.critical(f"Unexpected error during title matching: {str(e)}")
-        raise e
-
-    # Get top content-based similar movies
-    similar_movie_indices, similarity_scores = get_top_similar_movies(
-        index, count_matrix
-    )
-
-    recommended_movies = new_df.iloc[similar_movie_indices][
-        ["title", "id", "vote_count", "vote_average", "release_date", "poster_path"]
-    ].copy()
-
-    recommended_movies["vote_count"] = (
-        recommended_movies["vote_count"].fillna(0).astype(int)
-    )
-    recommended_movies["vote_average"] = (
-        recommended_movies["vote_average"].fillna(0).astype(float)
-    )
-
-    # Compute IMDb weighted rating
-    C = recommended_movies["vote_average"].mean()
-    m = recommended_movies["vote_count"].quantile(0.65)
-    recommended_movies["weighted_rating"] = recommended_movies.apply(
-        lambda x: weighted_rating(x, C, m), axis=1
-    )
-
-    qualified_movies = recommended_movies.copy()
-    qualified_movies.reset_index(drop=True, inplace=True)
+    # Compute weighted ratings
+    qualified_movies, C = compute_weighted_ratings(recommended_movies.copy())
 
     # Merge similarity scores
     similarity_df = pd.DataFrame(
-        {
-            "id": new_df.iloc[similar_movie_indices]["id"].values,
-            "similarity_score": similarity_scores,
-        }
+        {"id": qualified_movies["id"].values, "similarity_score": similarity_scores}
     )
-    qualified_movies = recommended_movies.merge(similarity_df, on="id", how="left")
+    qualified_movies = qualified_movies.merge(similarity_df, on="id", how="left")
     qualified_movies["similarity_score"] = qualified_movies["similarity_score"].fillna(
         qualified_movies["similarity_score"].min()
     )
 
-    # Cold-start handling for new users
+    # Cold-start for new users
     if user_id not in ratings_df["userId"].unique():
         qualified_movies = _apply_recency_boost(qualified_movies)
-        return handle_new_user(
-            qualified_movies,
-            top_n,
-            popularity_weight,
-            similarity_weight,
-            recency_weight,
-            new_df,
+        recommendations = handle_new_user(
+            qualified_movies, top_n, popularity_weight, similarity_weight, recency_weight, new_df
         )
+        return recommendations, None
 
-    # Match MovieLens IDs before using SVD
+    # Match MovieLens IDs and predict ratings
     qualified_movies = match_tmdb_to_movielens(qualified_movies, links_df)
-
-    # Predict ratings using SVD
     user_ratings_count = ratings_df[ratings_df["userId"] == user_id].shape[0]
-    qualified_movies = predict_ratings(
-        user_id, qualified_movies, best_svd_model, ratings_df, C
-    )
+    qualified_movies = predict_ratings(user_id, qualified_movies, best_svd_model, ratings_df, C)
 
-    # Compute hybrid recommendation score
-    qualified_movies = compute_hybrid_score(
-        qualified_movies, user_ratings_count, recency_weight, top_n
-    )
-
-    return qualified_movies
+    # Compute final hybrid score
+    recommendations = compute_hybrid_score(qualified_movies, user_ratings_count, recency_weight, top_n)
+    return recommendations, None
 
 
 # TMDb API Key
@@ -581,13 +536,6 @@ def get_movie_poster(movie):
             return f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
     return None
 
-
-# Genre-Based Recommender
-C = None  # Will be set after loading new_df
-m = None  # Will be set after loading new_df
-current_year = dt.datetime.now().year
-
-
 def preprocess_movies(df):
     """
     Preprocess movie dataset for recommendation system.
@@ -608,7 +556,7 @@ def preprocess_movies(df):
     """
     df = df.copy()
     df["genres_list"] = df["genres"].apply(
-        lambda x: [g.lower() for g in eval(x)] if isinstance(x, str) else []
+        lambda x: [g.lower() for g in literal_eval(x)] if isinstance(x, str) else []
     )
     df["release_year"] = pd.to_datetime(df["release_date"], errors="coerce").dt.year
     return df
@@ -642,12 +590,10 @@ def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rat
         The function applies case-insensitive genre matching and handles
         movies with multiple genres by considering genre position in the list.
     """
-    global C, m
-    if C is None:
-        C = df["vote_average"].mean()
-    if m is None:
-        m = df["vote_count"].quantile(quantile)
-
+    current_year = dt.datetime.now().year
+    C = df["vote_average"].mean()
+    m = df["vote_count"].quantile(quantile)
+    
     genre = genre.lower()
     genre_movies = df[df["genres_list"].apply(lambda genres: genre in genres)].copy()
     genre_movies["weighted_rating"] = genre_movies.apply(
