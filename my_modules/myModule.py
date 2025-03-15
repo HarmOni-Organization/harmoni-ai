@@ -8,6 +8,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import load_npz
 from surprise import PredictionImpossible
 from dotenv import load_dotenv
+from rapidfuzz import process, fuzz
 import requests
 
 # Load environment variables
@@ -33,14 +34,16 @@ def load_data():
             - new_df (DataFrame): Movie metadata
     """
     base_path = os.path.dirname(__file__)
-    ratings_small_path = os.path.abspath(os.path.join(base_path, os.getenv("RATINGS_PATH")))
+    ratings_small_path = os.path.abspath(
+        os.path.join(base_path, os.getenv("RATINGS_PATH"))
+    )
     links_small_path = os.path.abspath(os.path.join(base_path, os.getenv("LINKS_PATH")))
     new_df_path = os.path.abspath(os.path.join(base_path, os.getenv("MOVIES_PATH")))
 
-    
     ratings_df = pd.read_csv(ratings_small_path)
     links_df = pd.read_csv(links_small_path)
     new_df = pd.read_csv(new_df_path)
+
     return ratings_df, links_df, new_df
 
 
@@ -86,25 +89,10 @@ def load_count_matrix():
     Note:
         Requires COUNT_MATRIX_PATH environment variable to be set
     """
-    count_matrix_path = os.path.join(os.path.dirname(__file__), os.getenv("COUNT_MATRIX_PATH"))
+    count_matrix_path = os.path.join(
+        os.path.dirname(__file__), os.getenv("COUNT_MATRIX_PATH")
+    )
     return load_npz(count_matrix_path)
-
-
-# Create Movie Index Mapping (Title to Index)
-def create_indices(new_df):
-    """
-    Create a mapping between movie titles and their indices.
-
-    This function creates a Series mapping movie titles to their
-    corresponding indices in the DataFrame.
-
-    Parameters:
-        new_df (DataFrame): Movie metadata DataFrame
-
-    Returns:
-        Series: Title to index mapping
-    """
-    return pd.Series(new_df.index, index=new_df["title"]).drop_duplicates()
 
 
 def weighted_rating(x, C, m):
@@ -181,7 +169,9 @@ def handle_new_user(
         DataFrame: Recommended movies with final scores
     """
     if len(qualified_movies) < top_n:
-        popular_movies = new_df.sort_values("popularity", ascending=False).head(top_n * 2)
+        popular_movies = new_df.sort_values("popularity", ascending=False).head(
+            top_n * 2
+        )
         qualified_movies = pd.concat(
             [qualified_movies, popular_movies]
         ).drop_duplicates("id")
@@ -223,7 +213,7 @@ def predict_ratings(user_id, qualified_movies, best_svd_model, ratings_df, C):
         user_inner_id = best_svd_model.trainset.to_inner_uid(user_id)
     except ValueError:
         # User not in training set, use global average
-        qualified_movies['predicted_rating'] = C
+        qualified_movies["predicted_rating"] = C
         return qualified_movies
 
     # Vectorized prediction
@@ -232,7 +222,7 @@ def predict_ratings(user_id, qualified_movies, best_svd_model, ratings_df, C):
     item_biases = []
     item_factors = []
 
-    for movie_id in qualified_movies['movieId']:
+    for movie_id in qualified_movies["movieId"]:
         try:
             item_inner_id = best_svd_model.trainset.to_inner_iid(movie_id)
             item_biases.append(best_svd_model.bi[item_inner_id])
@@ -245,8 +235,13 @@ def predict_ratings(user_id, qualified_movies, best_svd_model, ratings_df, C):
             item_factors.append(np.zeros_like(best_svd_model.qi[0]))
 
     item_factors = np.array(item_factors)
-    predicted = global_mean + user_bias + np.array(item_biases) + np.dot(item_factors, best_svd_model.pu[user_inner_id])
-    qualified_movies['predicted_rating'] = np.clip(predicted, 0.5, 5.0)
+    predicted = (
+        global_mean
+        + user_bias
+        + np.array(item_biases)
+        + np.dot(item_factors, best_svd_model.pu[user_inner_id])
+    )
+    qualified_movies["predicted_rating"] = np.clip(predicted, 0.5, 5.0)
     return qualified_movies
 
 
@@ -355,6 +350,79 @@ def _apply_recency_boost(df):
     df["recency_score"] = (df["year"] - min_year) / year_range
     return df
 
+def fuzzy_title_match(title, new_df):
+    """
+    Enhanced fuzzy title matching with comprehensive error handling
+    
+    Args:
+        title: Input title to match
+        new_df: DataFrame containing movie titles
+        
+    Returns:
+        Tuple of (matched_title, index)
+        
+    Raises:
+        ValueError: If no match found with suggestions
+        KeyError: If required columns are missing
+        TypeError: For invalid input types
+    """
+    try:
+        # Validate input dataframe structure
+        if not isinstance(new_df, pd.DataFrame):
+            raise TypeError("Expected pandas DataFrame for new_df")
+            
+        if 'title' not in new_df.columns:
+            raise KeyError("DataFrame is missing required 'title' column")
+            
+        titles_list = new_df['title'].tolist()
+        
+        # Check for empty dataset
+        if not titles_list:
+            raise ValueError("No titles available in the dataset")
+
+        # Perform fuzzy matching with timeout for safety
+        match_result = process.extractOne(
+            title, 
+            titles_list,
+            scorer=fuzz.WRatio, 
+            score_cutoff=80,
+            processor=None,
+            score_hint=0  # Initial score estimate
+        )
+
+        logging.debug(f"Fuzzy match result: {match_result}")
+
+        if match_result:
+            best_match, score, index = match_result
+            
+            # Validate index range
+            if index < 0 or index >= len(new_df):
+                raise IndexError(f"Invalid index {index} returned for dataframe of length {len(new_df)}")
+                
+            logging.info(f"Fuzzy match successful: '{best_match}' (score: {score})")
+            return best_match, index
+
+        # Handle no good matches
+        suggestions = process.extract(
+            title,
+            titles_list,
+            limit=3,
+            scorer=fuzz.WRatio,
+            processor=None
+        )
+        
+        # Filter and format suggestions
+        suggestion_list = [f"{s[0]} ({s[1]}%)" for s in suggestions if s[1] > 50]
+        error_msg = (f"Movie '{title}' not found. Similar titles: {', '.join(suggestion_list)}" 
+                    if suggestion_list 
+                    else f"Movie '{title}' not found in database")
+
+        logging.warning(error_msg)
+        raise ValueError(error_msg)
+
+    except Exception as e:
+        logging.error(f"Title matching failed for '{title}': {str(e)}")
+        raise  e
 
 def improved_hybrid_recommendations(
     user_id,
@@ -365,7 +433,6 @@ def improved_hybrid_recommendations(
     new_df=None,
     best_svd_model=None,
     count_matrix=None,
-    indices=None,
     popularity_weight=0.15,
     similarity_weight=0.85,
     recency_weight=0.2,
@@ -404,12 +471,16 @@ def improved_hybrid_recommendations(
     Raises:
         ValueError: If movie title is not found or required parameters are missing
     """
-    if indices is None:
-        raise ValueError("Indices mapping is required.")
 
-    index = indices.get(title, None)
-    if index is None:
-        raise ValueError(f"Movie title '{title}' not found in the dataset.")
+    try:
+        _, index = fuzzy_title_match(title=title, new_df=new_df)
+    except (ValueError, KeyError) as e:
+        # Handle known error cases
+        print(f"Error finding movie: {str(e)}")
+    except Exception as e:
+        # Handle unexpected errors
+        logging.critical(f"Unexpected error during title matching: {str(e)}")
+        raise e
 
     # Get top content-based similar movies
     similar_movie_indices, similarity_scores = get_top_similar_movies(
@@ -477,8 +548,10 @@ def improved_hybrid_recommendations(
 
     return qualified_movies
 
+
 # TMDb API Key
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
+
 
 def get_movie_poster(movie):
     """
@@ -508,10 +581,12 @@ def get_movie_poster(movie):
             return f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
     return None
 
+
 # Genre-Based Recommender
 C = None  # Will be set after loading new_df
 m = None  # Will be set after loading new_df
 current_year = dt.datetime.now().year
+
 
 def preprocess_movies(df):
     """
@@ -532,9 +607,12 @@ def preprocess_movies(df):
             - release_year: Extracted year from release date
     """
     df = df.copy()
-    df['genres_list'] = df['genres'].apply(lambda x: [g.lower() for g in eval(x)] if isinstance(x, str) else [])
-    df['release_year'] = pd.to_datetime(df['release_date'], errors='coerce').dt.year
+    df["genres_list"] = df["genres"].apply(
+        lambda x: [g.lower() for g in eval(x)] if isinstance(x, str) else []
+    )
+    df["release_year"] = pd.to_datetime(df["release_date"], errors="coerce").dt.year
     return df
+
 
 def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rate=0.02):
     """
@@ -566,18 +644,26 @@ def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rat
     """
     global C, m
     if C is None:
-        C = df['vote_average'].mean()
+        C = df["vote_average"].mean()
     if m is None:
-        m = df['vote_count'].quantile(quantile)
-    
+        m = df["vote_count"].quantile(quantile)
+
     genre = genre.lower()
-    genre_movies = df[df['genres_list'].apply(lambda genres: genre in genres)].copy()
-    genre_movies['weighted_rating'] = genre_movies.apply(lambda x: weighted_rating(x, C, m), axis=1)    
-    genre_movies['genre_index'] = genre_movies['genres_list'].apply(lambda x: x.index(genre) if genre in x else float('inf'))
-    genre_movies['age_penalty'] = (1 - age_penalty_rate * (current_year - genre_movies['release_year'])).clip(lower=0.5)
-    genre_movies['adjusted_score'] = genre_movies['weighted_rating'] * genre_movies['age_penalty']
+    genre_movies = df[df["genres_list"].apply(lambda genres: genre in genres)].copy()
+    genre_movies["weighted_rating"] = genre_movies.apply(
+        lambda x: weighted_rating(x, C, m), axis=1
+    )
+    genre_movies["genre_index"] = genre_movies["genres_list"].apply(
+        lambda x: x.index(genre) if genre in x else float("inf")
+    )
+    genre_movies["age_penalty"] = (
+        1 - age_penalty_rate * (current_year - genre_movies["release_year"])
+    ).clip(lower=0.5)
+    genre_movies["adjusted_score"] = (
+        genre_movies["weighted_rating"] * genre_movies["age_penalty"]
+    )
     top_movies = genre_movies.sort_values(
-        by=['genre_index', 'adjusted_score', 'popularity'],
-        ascending=[True, False, False]
+        by=["genre_index", "adjusted_score", "popularity"],
+        ascending=[True, False, False],
     ).head(top_n)
-    return top_movies[['id', 'poster_path', 'title', 'release_date']]
+    return top_movies[["id", "poster_path", "title", "release_date"]]

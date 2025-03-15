@@ -1,13 +1,12 @@
 from flask import Flask, request, jsonify, render_template
 from dotenv import load_dotenv
-from my_modules.myModule import (
+from my_modules import (
     improved_hybrid_recommendations,
     get_movie_poster,
     genre_based_recommender,
     load_data,
     load_model,
     load_count_matrix,
-    create_indices,
     preprocess_movies,
 )
 import logging
@@ -27,7 +26,6 @@ app = Flask(__name__)
 ratings_df, links_df, new_df = load_data()
 best_svd1 = load_model()
 count_matrix = load_count_matrix()
-indices = create_indices(new_df)
 new_df2 = preprocess_movies(new_df)
 
 def validate_input(text):
@@ -108,15 +106,15 @@ def recommend():
     """
     try:
         userId = request.args.get("userId")
-        title = request.args.get("title")
+        title = request.args.get("title").strip()
         topN = request.args.get("topN", "10")
 
         if not userId or not title:
             return jsonify({"status": False, "message": "userId and title are required"}), 400
 
-        # Validate title for special characters
-        if not validate_input(title):
-            return jsonify({"status": False, "message": "Invalid characters in title"}), 400
+        # # Validate title for special characters
+        # if not validate_input(title):
+        #     return jsonify({"status": False, "message": "Invalid characters in title"}), 400
 
         try:
             userId = int(userId)
@@ -139,7 +137,6 @@ def recommend():
             new_df=new_df,
             best_svd_model=best_svd1,
             count_matrix=count_matrix,
-            indices=indices,
         )
         
         if recommendations is None or recommendations.empty:
@@ -193,7 +190,7 @@ def genreBasedRecommendation():
             return jsonify({"status": False, "message": "Invalid characters in genre"}), 400
 
         try:
-            topN = max(1, min(int(topN), 100))  # Ensure minimum of 1, maximum of 100
+            topN = max(1, min(int(topN), 300))  # Ensure minimum of 1, maximum of 300
         except ValueError:
             topN = 100  # Default to 100 if invalid
 
