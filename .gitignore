@@ -12,5 +12,3 @@ venv/
 .idea/
 .vscode/
 
-# Ignore data files
-data/*
