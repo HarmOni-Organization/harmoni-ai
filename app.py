@@ -83,7 +83,7 @@ def recommend():
             movie["poster_url"] = cached_get_movie_poster(movie["id"], movie["poster_path"])
 
         logging.info(f"Generated {len(result)} recommendations for user {userId}, title {title}")
-        return jsonify({"status": True, "data": {"userId": userId, "title": title, "recommendedMovies": result}})
+        return jsonify({"status": True, "message": "Recommendations generated successfully","data": {"userId": userId, "title": title, "recommendedMovies": result}})
     
     except Exception as e:
         logging.error(f"Server error in recommend route: {e}")
@@ -121,7 +121,7 @@ def genreBasedRecommendation():
         return jsonify(
             {
                 "status": True,
-                "message": "",
+                "message": "Recommendations generated successfully",
                 "data": {"genre": genre, "recommendedMovies": result},
             }
         )
