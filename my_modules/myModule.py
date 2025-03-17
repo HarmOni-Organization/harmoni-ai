@@ -397,10 +397,10 @@ def compute_weighted_ratings(movies_df):
     movies_df["weighted_rating"] = movies_df.apply(lambda x: weighted_rating(x, C, m), axis=1)
     return movies_df, C
 
-def find_similar_movies(title, new_df, count_matrix):
-    """Find movies similar to the given title using fuzzy matching and cosine similarity."""
+def find_similar_movies(movie_id, new_df, count_matrix):
+    """Find movies similar to the given movie id and cosine similarity."""
     try:
-        _, index = fuzzy_title_match(title=title, new_df=new_df)
+       movie_index = new_df[new_df["id"] == movie_id].index[0]
     except ValueError as e:
         return None, None, str(e)
     except Exception as e:
@@ -408,7 +408,7 @@ def find_similar_movies(title, new_df, count_matrix):
         raise e
 
     similar_movie_indices, similarity_scores = get_top_similar_movies(
-        index, count_matrix
+        movie_index, count_matrix
     )
     recommended_movies = new_df.iloc[similar_movie_indices][
         ["title", "id", "vote_count", "vote_average", "release_date", "poster_path"]
@@ -423,7 +423,7 @@ def find_similar_movies(title, new_df, count_matrix):
 
 def improved_hybrid_recommendations(
     user_id,
-    title,
+    movie_id,
     top_n=10,
     ratings_df=None,
     links_df=None,
@@ -445,7 +445,7 @@ def improved_hybrid_recommendations(
 
     Parameters:
         user_id (int): The ID of the user requesting recommendations
-        title (str): The title of the reference movie
+        movie_id (int): The ID of the reference movie
         top_n (int, optional): Number of recommendations to return. Defaults to 10.
         ratings_df (DataFrame, optional): Movie ratings dataset. Defaults to None.
         links_df (DataFrame, optional): Movie ID mapping dataset. Defaults to None.
@@ -468,7 +468,11 @@ def improved_hybrid_recommendations(
     Raises:
         ValueError: If movie title is not found or required parameters are missing
     """
-    result = find_similar_movies(title, new_df, count_matrix)
+    # Find the movie by ID
+    if movie_id not in new_df["id"].values:
+        return None, f"Movie ID {movie_id} not found in the database."
+    
+    result = find_similar_movies(movie_id, new_df, count_matrix)
     if result[0] is None:
         return None, result[2]  # Return error message
     

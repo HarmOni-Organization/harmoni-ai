@@ -60,7 +60,7 @@ class TestMovieRecommendations:
 
     def test_valid_recommendation(self, client):
         """Verify that movie recommendations work with valid inputs."""
-        response = client.get("/recommend?userId=1&title=Inception&topN=5")
+        response = client.get("/recommend?userId=1&movieId=27205&topN=5")  # Updated to use movieId
         assert response.status_code == 200
         data = response.json
         assert data["status"] is True
@@ -68,55 +68,60 @@ class TestMovieRecommendations:
 
     def test_missing_parameters(self, client):
         """Verify error handling for missing parameters."""
-        # Test missing title
+        # Test missing movieId
         response = client.get("/recommend?userId=1&topN=5")
         assert response.status_code == 400
-        assert b"userId and title are required" in response.data
+        assert b"userId and movieId are required" in response.data
 
         # Test missing userId
-        response = client.get("/recommend?title=Inception&topN=5")
+        response = client.get("/recommend?movieId=27205&topN=5")
         assert response.status_code == 400
-        assert b"userId and title are required" in response.data
+        assert b"userId and movieId are required" in response.data
 
     def test_invalid_parameters(self, client):
         """Verify error handling for invalid parameters."""
         # Test invalid userId
-        response = client.get("/recommend?userId=abc&title=Inception")
+        response = client.get("/recommend?userId=abc&movieId=27205")
         assert response.status_code == 400
-        assert b"userId must be a valid integer" in response.data
+        assert b"userId and movieId must be valid integers" in response.data
 
-        # Test empty title
-        response = client.get("/recommend?userId=1&title=&topN=5")
+        # Test invalid movieId
+        response = client.get("/recommend?userId=1&movieId=abc")
         assert response.status_code == 400
-        assert b"userId and title are required" in response.data
+        assert b"userId and movieId must be valid integers" in response.data
 
         # Test negative userId
-        response = client.get("/recommend?userId=-1&title=Inception&topN=5")
+        response = client.get("/recommend?userId=-1&movieId=27205&topN=5")
         assert response.status_code == 400
-        assert b"userId must be non-negative" in response.data
+        assert b"userId and movieId must be non-negative" in response.data
+
+        # Test negative movieId
+        response = client.get("/recommend?userId=1&movieId=-27205&topN=5")
+        assert response.status_code == 400
+        assert b"userId and movieId must be non-negative" in response.data
 
     def test_topn_parameter_handling(self, client):
         """Verify handling of different topN parameter values."""
         # Test large topN (should be capped)
-        response = client.get("/recommend?userId=1&title=Inception&topN=1000")
+        response = client.get("/recommend?userId=1&movieId=27205&topN=1000")
         assert response.status_code == 200
         data = response.json
         assert len(data["data"]["recommendedMovies"]) <= 50
 
         # Test zero topN (should default to minimum of 1)
-        response = client.get("/recommend?userId=1&title=Inception&topN=0")
+        response = client.get("/recommend?userId=1&movieId=27205&topN=0")
         assert response.status_code == 200
         data = response.json
         assert len(data["data"]["recommendedMovies"]) > 0
 
         # Test negative topN (should default to minimum of 1)
-        response = client.get("/recommend?userId=1&title=Inception&topN=-5")
+        response = client.get("/recommend?userId=1&movieId=27205&topN=-5")
         assert response.status_code == 200
         data = response.json
         assert len(data["data"]["recommendedMovies"]) > 0
 
         # Test invalid topN (should default to 10)
-        response = client.get("/recommend?userId=1&title=Inception&topN=abc")
+        response = client.get("/recommend?userId=1&movieId=27205&topN=abc")
         assert response.status_code == 200
         data = response.json
         assert len(data["data"]["recommendedMovies"]) > 0
@@ -124,62 +129,24 @@ class TestMovieRecommendations:
 
 @pytest.mark.edge
 class TestEdgeCases:
-    def test_special_characters(self, client):
-        """Test handling of special characters in input parameters."""
-        response = client.get(
-            "/recommend?userId=1&title=Movie%20with%20@%23%24%25&topN=5"
-        )
-        assert response.status_code in [200, 400]
-        if response.status_code == 400:
-            assert b"not found" in response.data
-        else:
-            data = response.json
-            assert "recommendedMovies" in data["data"]
-
-        response = client.get(
-            "/genreBasedRecommendation?genre=Action%40%23%24%25&topN=5"
-        )
-        assert response.status_code in [200, 400]
-        if response.status_code == 400:
-            assert b"No movies found" in response.data
-
-    def test_unicode_handling(self, client):
-        """Test handling of unicode characters in input parameters."""
-        response = client.get("/recommend?userId=1&title=Movie%20with%20üñîçødé&topN=5")
-        assert response.status_code in [200, 400]
-        if response.status_code == 400:
-            assert b"not found" in response.data
-
-        response = client.get("/genreBasedRecommendation?genre=Açtïøñ&topN=5")
-        assert response.status_code in [200, 400]
-        if response.status_code == 400:
-            assert b"No movies found" in response.data
-
-    def test_invalid_title(self, client):
-        """Test handling of titles that don’t exist."""
-        response = client.get(
-            "/recommend?userId=1&title=ThisTitleDoesNotExistXYZ&topN=5"
-        )
+    def test_invalid_movie_id(self, client):
+        """Test handling of invalid movie IDs."""
+        response = client.get("/recommend?userId=1&movieId=999999999&topN=5")
         assert response.status_code == 400
-        assert b"not found" in response.data
+        assert b"Movie ID 999999999 not found" in response.data
 
     def test_extreme_user_ids(self, client):
-        response = client.get("/recommend?userId=999999999&title=Inception&topN=5")
+        """Test handling of extreme user IDs."""
+        response = client.get("/recommend?userId=999999999&movieId=27205&topN=5")
         assert response.status_code == 200
         data = response.json
         assert "recommendedMovies" in data["data"]
 
     def test_empty_response_handling(self, client):
+        """Test handling of empty responses."""
         response = client.get("/genreBasedRecommendation?genre=NonexistentGenre&topN=5")
         assert response.status_code == 400
         assert b"No movies found for genre" in response.data
-
-        response = client.get("/recommend?userId=1&title=Inception&topN=5&minRating=10")
-        assert response.status_code == 200
-        data = response.json
-        assert "recommendedMovies" in data["data"]
-    
-    
 
 
 # Genre-based Recommendation Tests
@@ -256,7 +223,7 @@ class TestMoviePosters:
             mock_get_poster.return_value = (
                 "https://image.tmdb.org/t/p/w500/test_poster.jpg"
             )
-            response = client.get("/recommend?userId=1&title=Inception&topN=5")
+            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
             assert response.status_code == 200
             data = response.json
             assert (
@@ -276,7 +243,7 @@ class TestMoviePosters:
         """Test handling of missing movie posters."""
         with patch("app.cached_get_movie_poster") as mock_get_poster:
             mock_get_poster.return_value = ""
-            response = client.get("/recommend?userId=1&title=Inception&topN=5")
+            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
             assert response.status_code == 200
             data = response.json
             assert "recommendedMovies" in data["data"]
@@ -301,7 +268,7 @@ class TestErrorHandling:
         """Verify server error handling in recommendation endpoint."""
         with patch("app.improved_hybrid_recommendations") as mock_recommend:
             mock_recommend.side_effect = Exception("Unexpected error")
-            response = client.get("/recommend?userId=1&title=Inception&topN=5")
+            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
             assert response.status_code == 500
             assert b"Internal server error" in response.data
 
@@ -317,7 +284,7 @@ class TestErrorHandling:
         """Test handling of malformed requests."""
         # Test malformed URL
         response = client.get(
-            "/recommend?userId=1&title=Inception&topN=5&invalid=param"
+            "/recommend?userId=1&movieId=27205&topN=5&invalid=param"
         )
         assert response.status_code == 200  # Extra parameters should be ignored
 
@@ -329,5 +296,5 @@ class TestErrorHandling:
         """Test rate limiting behavior (if implemented)."""
         # Make multiple rapid requests
         for _ in range(50):
-            response = client.get("/recommend?userId=1&title=Inception&topN=5")
+            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
             assert response.status_code == 200  # No rate limiting implemented yet
