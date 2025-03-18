@@ -6,7 +6,6 @@ import pandas as pd
 import datetime as dt
 from sklearn.metrics.pairwise import cosine_similarity
 from scipy.sparse import load_npz
-from surprise import PredictionImpossible
 from dotenv import load_dotenv
 from rapidfuzz import process, fuzz
 from ast import literal_eval
@@ -17,22 +16,23 @@ load_dotenv()
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 
 
 def load_data():
     """
     Load and prepare movie datasets from various sources.
 
-    This function loads three main datasets:
-    1. MovieLens ratings dataset
-    2. TMDb links dataset
-    3. Movie metadata dataset
-
     Returns:
         tuple: (ratings_df, links_df, new_df)
-            - ratings_df (DataFrame): User ratings data
-            - links_df (DataFrame): Movie ID mappings
-            - new_df (DataFrame): Movie metadata
+            - ratings_df (DataFrame): User ratings data.
+            - links_df (DataFrame): Movie ID mappings.
+            - new_df (DataFrame): Movie metadata.
     """
     base_path = os.path.dirname(__file__)
     ratings_small_path = os.path.abspath(
@@ -52,28 +52,12 @@ def load_data():
     return ratings_df, links_df, new_df
 
 
-# def load_similarity_matrix():
-#     """
-#     Load the precomputed content-based cosine similarity matrix.
-
-#     Returns:
-#     numpy.ndarray: Cosine similarity matrix.
-#     """
-#     return np.load(r"data/cosine_similarity2.npy")
-
-
 def load_model():
     """
     Load the pre-trained SVD model for collaborative filtering.
 
-    This function loads a pickled SVD model that was previously trained
-    on the MovieLens dataset.
-
     Returns:
-        object: The loaded SVD model
-
-    Note:
-        Requires SVD_MODEL_PATH environment variable to be set
+        object: The loaded SVD model.
     """
     model_path = os.path.join(os.path.dirname(__file__), os.getenv("SVD_MODEL_PATH"))
     with open(model_path, "rb") as file:
@@ -85,14 +69,8 @@ def load_count_matrix():
     """
     Load the pre-computed count matrix for content-based similarity.
 
-    This function loads a sparse matrix containing movie feature counts
-    used for computing content-based similarity.
-
     Returns:
-        sparse matrix: The loaded count matrix
-
-    Note:
-        Requires COUNT_MATRIX_PATH environment variable to be set
+        sparse matrix: The loaded count matrix.
     """
     count_matrix_path = os.path.join(
         os.path.dirname(__file__), os.getenv("COUNT_MATRIX_PATH")
@@ -104,21 +82,13 @@ def weighted_rating(x, C, m):
     """
     Compute IMDb-style weighted rating for a movie.
 
-    This function implements the IMDb weighted rating formula:
-    WR = (v / (v + m)) * R + (m / (v + m)) * C
-    where:
-    - v is the number of votes
-    - m is the minimum votes required
-    - R is the average rating
-    - C is the mean vote across all movies
-
     Parameters:
-        x (Series): Movie data containing 'vote_count' and 'vote_average'
-        C (float): Mean vote across all movies
-        m (float): Minimum votes required to be considered
+        x (Series): Movie data containing 'vote_count' and 'vote_average'.
+        C (float): Mean vote across all movies.
+        m (float): Minimum votes required to be considered.
 
     Returns:
-        float: Weighted rating score between 0 and 10
+        float: Weighted rating score between 0 and 10.
     """
     v = x["vote_count"]
     R = x["vote_average"]
@@ -129,15 +99,12 @@ def match_tmdb_to_movielens(qualified_movies, links_df):
     """
     Match TMDb IDs with MovieLens IDs for SVD predictions.
 
-    This function merges the qualified movies DataFrame with the links
-    DataFrame to get the corresponding MovieLens IDs needed for SVD.
-
     Parameters:
-        qualified_movies (DataFrame): Movies selected for recommendation
-        links_df (DataFrame): Mapping of TMDb and MovieLens IDs
+        qualified_movies (DataFrame): Movies selected for recommendation.
+        links_df (DataFrame): Mapping of TMDb and MovieLens IDs.
 
     Returns:
-        DataFrame: Updated movies DataFrame with matched MovieLens IDs
+        DataFrame: Updated movies DataFrame with matched MovieLens IDs.
     """
     qualified_movies = qualified_movies.merge(
         links_df[["tmdbId", "movieId"]], left_on="id", right_on="tmdbId", how="left"
@@ -156,22 +123,16 @@ def handle_new_user(
     """
     Generate recommendations for new users using content-based approach.
 
-    This function handles the cold-start problem for new users by:
-    1. Using content-based similarity
-    2. Incorporating popularity scores
-    3. Applying recency bias
-    4. Handling cases with insufficient similar movies
-
     Parameters:
-        qualified_movies (DataFrame): Movies selected for recommendation
-        top_n (int): Number of recommendations to return
-        popularity_weight (float): Weight for popularity factor
-        similarity_weight (float): Weight for content similarity
-        recency_weight (float): Weight for recency factor
-        new_df (DataFrame): Complete movie dataset
+        qualified_movies (DataFrame): Movies selected for recommendation.
+        top_n (int): Number of recommendations to return.
+        popularity_weight (float): Weight for popularity factor.
+        similarity_weight (float): Weight for content similarity.
+        recency_weight (float): Weight for recency factor.
+        new_df (DataFrame): Complete movie dataset.
 
     Returns:
-        DataFrame: Recommended movies with final scores
+        DataFrame: Recommended movies with final scores.
     """
     if len(qualified_movies) < top_n:
         popular_movies = new_df.sort_values("popularity", ascending=False).head(

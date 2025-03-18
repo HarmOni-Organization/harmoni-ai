@@ -16,7 +16,17 @@ from functools import lru_cache
 from rapidfuzz import process, fuzz
 
 load_dotenv()
+
+
+
+# Configure structured logging
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+handler = logging.StreamHandler()
+formatter = logging.Formatter('{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
+
 app = Flask(__name__)
 
 ratings_df, links_df, new_df = load_data()
@@ -209,4 +219,4 @@ def genreBasedRecommendation():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
