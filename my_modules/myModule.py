@@ -356,39 +356,43 @@ def _apply_recency_boost(df):
     return df
 
 
-def fuzzy_title_match(title, new_df):
-    try:
-        titles_list = new_df["title"].tolist()
-        normalized_titles = [str(t).lower() for t in titles_list]
-        normalized_input = title.lower()
+def fuzzy_title_match(search_query, page, per_page, df):
+    # Create normalized version of titles while preserving original case
+    title_map = {str(title).lower(): str(title) for title in df['title']}
+    normalized_titles = list(title_map.keys())
+    
+    # Perform fuzzy matching with case-insensitive comparison
+    results = process.extract(
+        search_query.lower(),
+        normalized_titles,
+        scorer=fuzz.WRatio,
+        score_cutoff=80,
+        limit=per_page * page  # Get enough results for pagination
+    )
+    
+    # Sort by score descending, then by title ascending for consistency
+    results.sort(key=lambda x: (-x[1], x[0]))
+    
+    # Get unique matches in order while preserving scores
+    seen = set()
+    ordered_matches = []
+    for match in results:
+        if match[0] not in seen:
+            seen.add(match[0])
+            ordered_matches.append(match)
+    
+    # Get original case titles in match order
+    matched_original_titles = [title_map[match[0]] for match in ordered_matches]
+    
+    # Filter and order the DataFrame using the sorted titles
+    filtered = df[df['title'].str.lower().isin(seen)]
+    filtered = filtered.set_index('title').loc[matched_original_titles].reset_index()
+    
+    # Paginate
+    start = (page - 1) * per_page
+    end = start + per_page
+    return filtered.iloc[start:end][["id", "title"]].to_dict(orient='records')
 
-        # Use a stricter score cutoff
-        match_result = process.extractOne(
-            normalized_input,
-            normalized_titles,
-            scorer=fuzz.WRatio,
-            score_cutoff=95,  # Increased from 80 to 95
-            processor=None,
-        )
-
-        if match_result:
-            best_norm_match, score, index = match_result
-            original_title = titles_list[index]
-            return original_title, index
-        else:
-            # If no match is found above the threshold, raise an error
-            suggestions = process.extract(normalized_input, normalized_titles, limit=3, scorer=fuzz.WRatio)
-            suggestion_list = [f"{titles_list[s[2]]} ({s[1]}%)" for s in suggestions if s[1] > 50]
-            error_msg = (
-                f"'{title}' not found. Similar: {', '.join(suggestion_list)}"
-                if suggestion_list
-                else f"'{title}' not found in database"
-            )
-            raise ValueError(error_msg)
-
-    except Exception as e:
-        logging.error(f"Title matching error: {str(e)}")
-        raise e
 
 def compute_weighted_ratings(movies_df):
     """Compute IMDb weighted ratings for a DataFrame of movies."""

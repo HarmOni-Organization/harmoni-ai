@@ -8,6 +8,7 @@ from my_modules import (
     load_model,
     load_count_matrix,
     preprocess_movies,
+    fuzzy_title_match
 )
 import os
 import logging
@@ -41,25 +42,19 @@ def home():
 
 @app.route("/movies", methods=["GET"])
 def get_movies():
-    search_query = request.args.get("search", "")
+    search_query = request.args.get("search", "").strip()
     page = int(request.args.get("page", 1))
     per_page = 10
 
-    if not search_query:  # Return empty list if no search query (for Select2)
+    if not search_query or page < 1:
         return jsonify([])
-    normalized_titles = [str(t).lower() for t in titles_list]
-    normalized_input = search_query.lower()
-    results = process.extract(normalized_input, normalized_titles, scorer=fuzz.WRatio, score_cutoff=80, limit=per_page)
-    matched_titles = [match[0] for match in results]
-    filtered_movies = new_df[new_df["title"].isin(matched_titles)]
-
-    start_idx = (page - 1) * per_page
-    end_idx = start_idx + per_page
-    movies_page = filtered_movies.iloc[start_idx:end_idx]
-    movies = movies_page[["id", "title"]].to_dict(orient="records")
-
-    return jsonify(movies)
-
+    
+    try:
+        results = fuzzy_title_match(search_query, page, per_page, new_df)
+        return jsonify(results)
+    except Exception as e:
+        app.logger.error(f"Error in movie search: {str(e)}")
+        return jsonify([])
 
 @app.route("/recommend", methods=["GET"])
 def recommend():
