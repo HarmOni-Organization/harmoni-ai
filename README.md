@@ -75,49 +75,48 @@ Alternatively, you can use **`Docker Compose`** for easier management:
 
 ## Usage
 
-- **Homepage**: Enter a User ID and a Movie Title to receive recommendations.
+- **Homepage**: Enter a User ID and a Movie ID to receive recommendations.
 - **API Endpoint**:
    - Use `/recommend` with the following query parameters:
      - `userId`: The user ID.
-     - `title`: The movie title.
+     - `movieId`: The movie ID.
      - `topN`: The number of recommendations (default: 10).
 
      Example API request:
      ```
-     http://127.0.0.1:5000/recommend?userId=1&title=Inception&topN=3
+     http://127.0.0.1:5000/recommend?userId=2000&movieId=286217&topN=3
      ```
      Example API response:
      ```
-     {
-     "data": {
+     { "data": {
+        "movieId": 286217,
         "recommendedMovies": [
             {
-                "final_score": 4.257097358991,
-                "id": 603,
-                "poster_path": "/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
-                "poster_url": "https://image.tmdb.org/t/p/w500/f89U3ADr1oiB1s9GkdPOEpXUk5H.jpg",
-                "release_date": "1999-03-30",
-                "title": "The Matrix"
+                "final_score": 1.3819408690238388,
+                "id": 157336,
+                "poster_path": "/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+                "poster_url": "https://image.tmdb.org/t/p/w500/gEU2QniE6E77NI6lCU6MxlNBvIx.jpg",
+                "release_date": "2014-11-05",
+                "title": "Interstellar"
             },
             {
-                "final_score": 3.870021302510938,
-                "id": 8681,
-                "poster_path": "/y5Va1WXDX6nZElVirPrGxf6w99B.jpg",
-                "poster_url": "https://image.tmdb.org/t/p/w500/y5Va1WXDX6nZElVirPrGxf6w99B.jpg",
-                "release_date": "2008-02-18",
-                "title": "Taken"
+                "final_score": 1.3157363451957031,
+                "id": 118340,
+                "poster_path": "/r7vmZjiyZw9rpJMQJdXpjgiCOk9.jpg",
+                "poster_url": "https://image.tmdb.org/t/p/w500/r7vmZjiyZw9rpJMQJdXpjgiCOk9.jpg",
+                "release_date": "2014-07-30",
+                "title": "Guardians of the Galaxy"
             },
             {
-                "final_score": 3.8335548353137865,
-                "id": 1672,
-                "poster_path": "/dhAZ8T0tTlTNw3D7Cn8wc87sk1w.jpg",
-                "poster_url": "https://image.tmdb.org/t/p/w500/dhAZ8T0tTlTNw3D7Cn8wc87sk1w.jpg",
-                "release_date": "1981-10-21",
-                "title": "The Professional"
+                "final_score": 1.2504400330731897,
+                "id": 283995,
+                "poster_path": "/y4MBh0EjBlMuOzv9axM4qJlmhzz.jpg",
+                "poster_url": "https://image.tmdb.org/t/p/w500/y4MBh0EjBlMuOzv9axM4qJlmhzz.jpg",
+                "release_date": "2017-04-19",
+                "title": "Guardians of the Galaxy Vol. 2"
             }
         ],
-        "title": "Inception",
-        "userId": 1
+        "userId": 2000
      },
      "message": "Recommendations generated successfully",
      "status": true
