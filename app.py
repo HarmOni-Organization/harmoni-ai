@@ -39,7 +39,7 @@ cache_size = int(os.getenv("POSTER_CACHE_SIZE", 1000))
 
 @lru_cache(
     maxsize=1000
-)  # Adjust based on memory usage and request patterns; monitor in production
+)
 def cached_get_movie_poster(movie_id, poster_path):
     movie = {"id": movie_id, "poster_path": poster_path}
     return get_movie_poster(movie) or ""
