@@ -10,7 +10,7 @@ This system is part of **HarmOni**, an all-in-one entertainment hub designed to 
 
 👉 **Hybrid Recommendation Engine** (Content-based, Collaborative Filtering & Popularity-based)  
 👉 **User-Friendly API** (Interact with the recommendation system via RESTful API)  
-👉 **Genre-Based Suggestions** (Find movies based on genre preferences)  
+👉 **Genre-Based Recommendations** (Find movies based on genre preferences)  
 👉 **Extensible Architecture** (Easily integrates with additional features & datasets)  
 👉 **Docker Support** (Run seamlessly in a containerized environment)  
 
@@ -95,12 +95,12 @@ The service will be available at:
 
 | Method | Endpoint               | Description                                  |
 |--------|------------------------|----------------------------------------------|
-| `GET`  | `/recommend`           | Get personalized movie recommendations      |
+| `GET`  | `/recommend`           | Get related & personalized movie recommendations      |
 | `GET`  | `/genreBasedRecommendation` | Get movie recommendations by genre |
 
 #### **Example API Usage**
 
-**User-Based Recommendation**
+**Hybrid Recommendation**
 ```sh
 http://127.0.0.1:5000/recommend?userId=2000&movieId=286217&topN=3
 ```
