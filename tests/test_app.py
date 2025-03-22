@@ -15,6 +15,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "posters: Movie poster tests")
     config.addinivalue_line("markers", "errors: Error handling tests")
     config.addinivalue_line("markers", "edge: Edge case tests")
+    config.addinivalue_line("markers", "edge: Edge case tests")
 
 
 # Fixtures

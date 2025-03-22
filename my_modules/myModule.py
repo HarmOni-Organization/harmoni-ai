@@ -365,7 +365,7 @@ def compute_weighted_ratings(movies_df):
 def find_similar_movies(movie_id, new_df, count_matrix):
     """Find movies similar to the given movie id and cosine similarity."""
     try:
-       movie_index = new_df[new_df["id"] == movie_id].index[0]
+        movie_index = new_df[new_df["id"] == movie_id].index[0]
     except ValueError as e:
         return None, None, str(e)
     except Exception as e:

@@ -1,5 +1,4 @@
 version: "3.8"
-
 services:
   web:
     build: .
@@ -19,6 +18,13 @@ services:
       - ./app.py:/app/app.py
       - ./.env:/app/.env
       - ./tests:/app/tests
+    hostname: web
+    domainname: harmoni-ai.local
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   test:
     build: .

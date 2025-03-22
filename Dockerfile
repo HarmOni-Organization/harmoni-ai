@@ -16,8 +16,7 @@ RUN mkdir -p /app/data /app/models /app/templates /app/static /app/my_modules /a
 
 # Copy requirements first to leverage Docker cache
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-RUN pip install --no-cache-dir pytest pytest-cov
+RUN pip install --no-cache-dir -r requirements.txt pytest pytest-cov gunicorn
 
 # Copy application files
 COPY app.py .
@@ -33,4 +32,4 @@ RUN chmod -R 755 /app
 EXPOSE 5000
 
 # Command to run the application
-CMD ["flask", "run", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["gunicorn", "--workers=4", "--bind=0.0.0.0:5000", "app:app"]
