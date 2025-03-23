@@ -62,7 +62,7 @@ def cached_get_movie_poster(movie_id, poster_path):
 @app.route("/")
 def home():
     logger.info(
-        "Received request to  '/'",
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]'/'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
@@ -77,7 +77,7 @@ def home():
 def get_movies():
     start_time = time.time()
     logger.info(
-        "Received request to '/movies'",
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/movies'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
@@ -94,7 +94,7 @@ def get_movies():
         response.status_code = 200
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -108,7 +108,7 @@ def get_movies():
         response.status_code = 200
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -121,7 +121,7 @@ def get_movies():
         response.status_code = 500
         end_time = time.time()
         logger.info(
-            "Response sent ",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -138,7 +138,7 @@ def recommend():
     topN = request.args.get("topN", "10")
 
     logger.info(
-        "Received recommendation request  '/rcommend'",
+        "Received request from: [{request.remote_addr}] to  [{request.method}]:'/rcommend'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
@@ -161,7 +161,7 @@ def recommend():
         response.status_code = 400
         end_time = time.time()
         logger.info(
-            "Response sent  ",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {(end_time - start_time):0.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -191,7 +191,7 @@ def recommend():
             response.status_code = 400
             end_time = time.time()
             logger.info(
-                "Response sent ",
+                f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
                 extra={
                     "status_code": response.status_code,
                     "response_time": end_time - start_time,
@@ -217,7 +217,7 @@ def recommend():
         response.status_code = 400
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -255,7 +255,7 @@ def recommend():
         response.status_code = 400
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -287,7 +287,7 @@ def recommend():
         response.status_code = 200
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -322,7 +322,7 @@ def recommend():
     response.status_code = 200
     end_time = time.time()
     logger.info(
-        "Response sent",
+        f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
         extra={
             "status_code": response.status_code,
             "response_time": end_time - start_time,
@@ -338,13 +338,13 @@ def genreBasedRecommendation():
     topN = request.args.get("topN", 100)
 
     logger.info(
-        "Received genre recommendation request  '/genreBasedRecommendation'",
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/genreBasedRecommendation'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
             "user_agent": request.user_agent.string,
             "query_params": request.args.to_dict(),
-        },
+        },git 
     )
 
     if not genre:
@@ -361,7 +361,7 @@ def genreBasedRecommendation():
         response.status_code = 400
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -401,7 +401,7 @@ def genreBasedRecommendation():
         response.status_code = 400
         end_time = time.time()
         logger.info(
-            "Response sent",
+            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
             extra={
                 "status_code": response.status_code,
                 "response_time": end_time - start_time,
@@ -432,7 +432,7 @@ def genreBasedRecommendation():
     response.status_code = 200
     end_time = time.time()
     logger.info(
-        "Response sent",
+        f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
         extra={
             "status_code": response.status_code,
             "response_time": end_time - start_time,
