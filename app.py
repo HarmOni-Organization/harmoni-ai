@@ -138,7 +138,7 @@ def recommend():
     topN = request.args.get("topN", "10")
 
     logger.info(
-        "Received request from: [{request.remote_addr}] to  [{request.method}]:'/rcommend'",
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/rcommend'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
