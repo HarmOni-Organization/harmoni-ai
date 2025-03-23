@@ -41,8 +41,8 @@ app.logger.propagate = True
 app.logger.handlers.clear()
 
 # Add this to ensure third-party libraries don't add extra handlers
-logging.getLogger('werkzeug').handlers.clear()
-logging.getLogger('werkzeug').propagate = True
+logging.getLogger("werkzeug").handlers.clear()
+logging.getLogger("werkzeug").propagate = True
 
 
 ratings_df, links_df, new_df = load_data()
@@ -157,7 +157,9 @@ def recommend():
                 "query_params": request.args.to_dict(),
             },
         )
-        response = jsonify({"status": False, "message": "userId and movieId are required"})
+        response = jsonify(
+            {"status": False, "message": "userId and movieId are required"}
+        )
         response.status_code = 400
         end_time = time.time()
         logger.info(
@@ -200,7 +202,7 @@ def recommend():
             return response, 400
     except ValueError:
         logger.warning(
-            "Invalid userId or movieId format" ,
+            "Invalid userId or movieId format",
             extra={
                 "http_method": request.method,
                 "remote_ip": request.remote_addr,
@@ -232,25 +234,26 @@ def recommend():
 
     try:
         recommendations, error_message = improved_hybrid_recommendations(
-        user_id=userId,
-        movie_id=movieId,
-        top_n=topN,
-        ratings_df=ratings_df,
-        links_df=links_df,
-        new_df=new_df,
-        best_svd_model=best_svd1,
-        count_matrix=count_matrix,
-    )
+            user_id=userId,
+            movie_id=movieId,
+            top_n=topN,
+            ratings_df=ratings_df,
+            links_df=links_df,
+            new_df=new_df,
+            best_svd_model=best_svd1,
+            count_matrix=count_matrix,
+        )
     except Exception as e:
         logger.error(f"Recommendation error: {str(e)}", exc_info=True)
-        return jsonify({
-        "status": False,
-        "message": "Internal server error occurred"
-        }), 500
-
+        return (
+            jsonify({"status": False, "message": "Internal server error occurred"}),
+            500,
+        )
 
     if error_message:
-        logger.warning(f"Recommendation failed: {error_message}", extra={"error": error_message})
+        logger.warning(
+            f"Recommendation failed: {error_message}", extra={"error": error_message}
+        )
         response = jsonify({"status": False, "message": error_message})
         response.status_code = 400
         end_time = time.time()
@@ -379,11 +382,10 @@ def genreBasedRecommendation():
         recommendations = genre_based_recommender(genre=genre, df=new_df2, top_n=topN)
     except Exception as e:
         logger.error(f"Genre recommendation error: {str(e)}", exc_info=True)
-        return jsonify({
-            "status": False,
-            "message": "Internal server error occurred"
-        }), 500
-
+        return (
+            jsonify({"status": False, "message": "Internal server error occurred"}),
+            500,
+        )
 
     if recommendations is None or recommendations.empty:
         logger.warning(
@@ -439,6 +441,7 @@ def genreBasedRecommendation():
         },
     )
     return response, 200
+
 
 if __name__ == "__main__":
     app.run(debug=True)
