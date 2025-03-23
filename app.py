@@ -268,7 +268,7 @@ def recommend():
 
     if recommendations is None or recommendations.empty:
         logger.info(
-            f"No recommendations found for user {userId}, movieId {movieId}",
+            f"No recommendations found for userId-{userId}, movieId-{movieId}",
             extra={
                 "http_method": request.method,
                 "remote_ip": request.remote_addr,
