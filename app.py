@@ -344,7 +344,7 @@ def genreBasedRecommendation():
             "remote_ip": request.remote_addr,
             "user_agent": request.user_agent.string,
             "query_params": request.args.to_dict(),
-        },git 
+        },
     )
 
     if not genre:
