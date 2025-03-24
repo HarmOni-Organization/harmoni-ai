@@ -62,14 +62,9 @@ def cached_get_movie_poster(movie_id, poster_path):
 @app.route("/")
 def home():
     logger.info(
-        f"Received request from: [{request.remote_addr}] to  [{request.method}]'/'",
-        extra={
-            "http_method": request.method,
-            "remote_ip": request.remote_addr,
-            "user_agent": request.user_agent.string,
-        },
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]'/'"
     )
-    return render_template("index.html")
+    return "Welcome to Hybrid Recommendation System API"
 
 
 # @app.route("/movies", methods=["GET"])
