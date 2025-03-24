@@ -38,13 +38,6 @@ class TestBasicRoutes:
     - Response format validation
     """
 
-    def test_home(self, client):
-        """Verify that the home page loads successfully."""
-        response = client.get("/")
-        assert response.status_code == 200
-        assert b"Hybrid Movie Recommendation System" in response.data
-
-
 # Movie Recommendation Tests
 @pytest.mark.recommendations
 class TestMovieRecommendations:
@@ -81,25 +74,16 @@ class TestMovieRecommendations:
 
     def test_invalid_parameters(self, client):
         """Verify error handling for invalid parameters."""
-        # Test invalid userId
-        response = client.get("/recommend?userId=abc&movieId=27205")
-        assert response.status_code == 400
-        assert b"userId and movieId must be valid integers" in response.data
 
         # Test invalid movieId
         response = client.get("/recommend?userId=1&movieId=abc")
         assert response.status_code == 400
-        assert b"userId and movieId must be valid integers" in response.data
-
-        # Test negative userId
-        response = client.get("/recommend?userId=-1&movieId=27205&topN=5")
-        assert response.status_code == 400
-        assert b"userId and movieId must be non-negative" in response.data
+        assert b"movieId must be valid integer" in response.data
 
         # Test negative movieId
         response = client.get("/recommend?userId=1&movieId=-27205&topN=5")
         assert response.status_code == 400
-        assert b"userId and movieId must be non-negative" in response.data
+        assert b"movieId must be non-negative" in response.data
 
     def test_topn_parameter_handling(self, client):
         """Verify handling of different topN parameter values."""

@@ -69,65 +69,64 @@ def home():
             "user_agent": request.user_agent.string,
         },
     )
-    movies = new_df[["id", "title"]].to_dict(orient="records")
-    return render_template("index.html", movies=movies)
+    return render_template("index.html")
 
 
-@app.route("/movies", methods=["GET"])
-def get_movies():
-    start_time = time.time()
-    logger.info(
-        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/movies'",
-        extra={
-            "http_method": request.method,
-            "remote_ip": request.remote_addr,
-            "user_agent": request.user_agent.string,
-            "query_params": request.args.to_dict(),
-        },
-    )
-    search_query = request.args.get("search", "").strip()
-    page = int(request.args.get("page", 1))
-    per_page = 10
+# @app.route("/movies", methods=["GET"])
+# def get_movies():
+#     start_time = time.time()
+#     logger.info(
+#         f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/movies'",
+#         extra={
+#             "http_method": request.method,
+#             "remote_ip": request.remote_addr,
+#             "user_agent": request.user_agent.string,
+#             "query_params": request.args.to_dict(),
+#         },
+#     )
+#     search_query = request.args.get("search", "").strip()
+#     page = int(request.args.get("page", 1))
+#     per_page = 10
 
-    if not search_query or page < 1:
-        response = jsonify([])
-        response.status_code = 200
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response
+#     if not search_query or page < 1:
+#         response = jsonify([])
+#         response.status_code = 200
+#         end_time = time.time()
+#         logger.info(
+#             f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
+#             extra={
+#                 "status_code": response.status_code,
+#                 "response_time": end_time - start_time,
+#             },
+#         )
+#         return response
 
-    try:
-        results = fuzzy_title_match(search_query, page, per_page, new_df)
-        response = jsonify(results)
-        response.status_code = 200
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response
-    except Exception as e:
-        app.logger.error(f"Error in movie search: {str(e)}", extra={"error": str(e)})
-        response = jsonify([])
-        response.status_code = 500
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response
+#     try:
+#         results = fuzzy_title_match(search_query, page, per_page, new_df)
+#         response = jsonify(results)
+#         response.status_code = 200
+#         end_time = time.time()
+#         logger.info(
+#             f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
+#             extra={
+#                 "status_code": response.status_code,
+#                 "response_time": end_time - start_time,
+#             },
+#         )
+#         return response
+#     except Exception as e:
+#         app.logger.error(f"Error in movie search: {str(e)}", extra={"error": str(e)})
+#         response = jsonify([])
+#         response.status_code = 500
+#         end_time = time.time()
+#         logger.info(
+#             f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
+#             extra={
+#                 "status_code": response.status_code,
+#                 "response_time": end_time - start_time,
+#             },
+#         )
+#         return response
 
 
 @app.route("/recommend", methods=["GET"])
@@ -172,11 +171,10 @@ def recommend():
         return response, 400
 
     try:
-        userId = int(userId)
         movieId = int(movieId)
-        if userId < 0 or movieId < 0:
+        if movieId < 0:
             logger.warning(
-                "Negative userId or movieId",
+                "Negative movieId",
                 extra={
                     "http_method": request.method,
                     "remote_ip": request.remote_addr,
@@ -187,7 +185,7 @@ def recommend():
             response = jsonify(
                 {
                     "status": False,
-                    "message": "userId and movieId must be non-negative",
+                    "message": "movieId must be non-negative",
                 }
             )
             response.status_code = 400
@@ -202,7 +200,7 @@ def recommend():
             return response, 400
     except ValueError:
         logger.warning(
-            "Invalid userId or movieId format",
+            "Invalid movieId format",
             extra={
                 "http_method": request.method,
                 "remote_ip": request.remote_addr,
@@ -213,7 +211,7 @@ def recommend():
         response = jsonify(
             {
                 "status": False,
-                "message": "userId and movieId must be valid integers",
+                "message": "movieId must be valid integer",
             }
         )
         response.status_code = 400

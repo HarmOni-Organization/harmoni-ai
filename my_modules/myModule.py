@@ -456,7 +456,7 @@ def improved_hybrid_recommendations(
     )
 
     # Cold-start for new users
-    if user_id not in ratings_df["userId"].unique():
+    if user_id not in set(ratings_df["userId"]):
         qualified_movies = _apply_recency_boost(qualified_movies)
         recommendations = handle_new_user(
             qualified_movies, top_n, popularity_weight, similarity_weight, recency_weight, new_df
