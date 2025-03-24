@@ -1,4 +1,4 @@
-# 🎬 HarmOni AI - Hybrid Movie Recommendation System
+# 🎬 HarmOni AI - Hybrid Movie Recommendation System API
 
 The **HarmOni AI Recommendation System** is a **Flask-powered API** that delivers **personalized movie recommendations** using a **hybrid recommendation approach**. It integrates **content-based filtering, collaborative filtering (SVD), and popularity-based filtering from IMDb** to enhance accuracy.
 
@@ -27,8 +27,6 @@ harmoni-ai/
 │   └── test_app.py        # Unit tests
 ├── data/                  # Movie datasets
 ├── models/                # Pre-trained recommendation models
-├── templates/             # HTML templates for the web interface
-├── static/                # Static assets (CSS, JS)
 ├── Dockerfile             # Docker build configuration
 ├── docker-compose.yml     # Docker Compose setup
 ├── requirements.txt       # Python dependencies
@@ -84,9 +82,6 @@ docker-compose up --build
 python app.py
 ```
 
-The service will be available at:  
-📌 **http://127.0.0.1:5000/**
-
 ---
 
 ## 🔗 API Endpoints
@@ -102,7 +97,7 @@ The service will be available at:
 
 **Hybrid Recommendation**
 ```sh
-http://127.0.0.1:5000/recommend?userId=2000&movieId=286217&topN=3
+http://127.0.0.1:80/recommend?userId=2000&movieId=286217&topN=3
 ```
 **Response**
 ```json
@@ -134,7 +129,7 @@ http://127.0.0.1:5000/recommend?userId=2000&movieId=286217&topN=3
 
 **Genre-Based Recommendation**
 ```sh
-http://127.0.0.1:5000/genreBasedRecommendation?genre=Action&topN=3
+http://127.0.0.1:80/genreBasedRecommendation?genre=Action&topN=3
 ```
 **Response**
 ```json
