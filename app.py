@@ -1,4 +1,5 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 from dotenv import load_dotenv
 from my_modules import (
     improved_hybrid_recommendations,
@@ -18,6 +19,7 @@ import time
 load_dotenv()
 
 app = Flask(__name__)
+CORS(app)
 
 # Configure root logger to handle ALL logs
 logger = logging.getLogger()
