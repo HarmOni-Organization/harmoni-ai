@@ -12,8 +12,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./templates:/app/templates
-      - ./static:/app/static
       - ./my_modules:/app/my_modules
       - ./app.py:/app/app.py
       - ./.env:/app/.env
@@ -36,8 +34,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./models:/app/models
-      - ./templates:/app/templates
-      - ./static:/app/static
       - ./my_modules:/app/my_modules
       - ./app.py:/app/app.py
       - ./.env:/app/.env
