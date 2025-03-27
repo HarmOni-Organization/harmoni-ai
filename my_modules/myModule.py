@@ -19,7 +19,7 @@ load_dotenv()
 
 # Setup logging configuration
 logging.basicConfig(level=logging.INFO)  # Set the base logging level to INFO
-logger = logging.getLogger(_name_)     # Get a logger for the current module
+logger = logging.getLogger(__name__)     # Get a logger for the current module
 
 # Create a stream handler to output logs to the console
 handler = logging.StreamHandler()
