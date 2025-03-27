@@ -24,7 +24,6 @@ COPY data/ ./data/
 COPY models/ ./models/
 COPY my_modules/ ./my_modules/
 COPY tests/ ./tests/
-COPY data/ ./data/
 
 # Set proper permissions
 RUN chmod -R 755 /app
