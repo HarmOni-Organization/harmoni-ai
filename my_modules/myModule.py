@@ -1,50 +1,81 @@
+# Standard library imports
+import datetime as dt
+import logging
 import os
 import pickle
-import logging
+from ast import literal_eval
+
+# Third-party library imports
 import numpy as np
 import pandas as pd
-import datetime as dt
-from sklearn.metrics.pairwise import cosine_similarity
-from scipy.sparse import load_npz
-from dotenv import load_dotenv
-from rapidfuzz import process, fuzz
-from ast import literal_eval
 import requests
+from dotenv import load_dotenv
+from rapidfuzz import fuzz, process
+from scipy.sparse import load_npz
+from sklearn.metrics.pairwise import cosine_similarity
 
-# Load environment variables
+# Load environment variables from a .env file into the environment
 load_dotenv()
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-handler = logging.StreamHandler()
-formatter = logging.Formatter('{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+# Setup logging configuration
+logging.basicConfig(level=logging.INFO)  # Set the base logging level to INFO
+logger = logging.getLogger(_name_)     # Get a logger for the current module
 
+# Create a stream handler to output logs to the console
+handler = logging.StreamHandler()
+
+# Define a custom log format as JSON-like string
+formatter = logging.Formatter(
+    '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s"}'
+)
+
+# Attach the formatter to the handler
+handler.setFormatter(formatter)
+
+# Add the handler to the logger
+logger.addHandler(handler)
 
 
 def load_data():
     """
-    Load and prepare movie datasets from various sources.
+    Load and validate movie-related datasets from paths defined in environment variables.
+
+    This function retrieves three datasets:
+    1. User ratings
+    2. Movie ID mappings (e.g., MovieLens to IMDb)
+    3. Movie metadata
+
+    The file paths are resolved relative to the script's directory and read using pandas.
 
     Returns:
-        tuple: (ratings_df, links_df, new_df)
-            - ratings_df (DataFrame): User ratings data.
-            - links_df (DataFrame): Movie ID mappings.
-            - new_df (DataFrame): Movie metadata.
+        tuple: A tuple containing three pandas DataFrames:
+            - ratings_df (pd.DataFrame): User ratings data.
+            - links_df (pd.DataFrame): Movie ID mapping data.
+            - new_df (pd.DataFrame): Movie metadata including titles and genres.
+
+    Raises:
+        FileNotFoundError: If any of the expected dataset files are missing.
     """
+    # Get the directory path of the current script
     base_path = os.path.dirname(__file__)
+
+    # Resolve absolute paths to each CSV using environment variables
     ratings_small_path = os.path.abspath(
         os.path.join(base_path, os.getenv("RATINGS_PATH"))
     )
-    links_small_path = os.path.abspath(os.path.join(base_path, os.getenv("LINKS_PATH")))
-    new_df_path = os.path.abspath(os.path.join(base_path, os.getenv("MOVIES_PATH")))
-    
+    links_small_path = os.path.abspath(
+        os.path.join(base_path, os.getenv("LINKS_PATH"))
+    )
+    new_df_path = os.path.abspath(
+        os.path.join(base_path, os.getenv("MOVIES_PATH"))
+    )
+
+    # Ensure all required files exist
     for path in [ratings_small_path, links_small_path, new_df_path]:
         if not os.path.exists(path):
             raise FileNotFoundError(f"Data file not found: {path}")
 
+    # Load datasets into pandas DataFrames
     ratings_df = pd.read_csv(ratings_small_path)
     links_df = pd.read_csv(links_small_path)
     new_df = pd.read_csv(new_df_path)
@@ -58,23 +89,50 @@ def load_model():
 
     Returns:
         object: The loaded SVD model.
+
+    Raises:
+        FileNotFoundError: If the model file is not found.
+        ValueError: If the environment variable SVD_MODEL_PATH is not set.
     """
-    model_path = os.path.join(os.path.dirname(__file__), os.getenv("SVD_MODEL_PATH"))
-    with open(model_path, "rb") as file:
-        return pickle.load(file)
+    model_path = os.getenv("SVD_MODEL_PATH")
+    if not model_path:
+        raise ValueError("Environment variable 'SVD_MODEL_PATH' is not set.")
 
+    model_path = os.path.join(os.path.dirname(__file__), model_path)
 
-# Load Count Matrix
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+    
+    try:
+        with open(model_path, "rb") as file:
+            return pickle.load(file)
+    except Exception as e:
+        logging.error(f"Error loading the model: {e}")
+        raise
+
 def load_count_matrix():
     """
     Load the pre-computed count matrix for content-based similarity.
 
     Returns:
         sparse matrix: The loaded count matrix.
+
+    Raises:
+        ValueError: If 'COUNT_MATRIX_PATH' is not set.
+        FileNotFoundError: If the matrix file is missing.
     """
-    count_matrix_path = os.path.join(
-        os.path.dirname(__file__), os.getenv("COUNT_MATRIX_PATH")
-    )
+    
+    # Get the count matrix path from the environment variable
+    count_matrix_path = os.getenv("COUNT_MATRIX_PATH")
+    if not count_matrix_path:
+        raise ValueError("Environment variable 'COUNT_MATRIX_PATH' is not set.")
+
+    # Construct the full file path and check if the file exists
+    count_matrix_path = os.path.join(os.path.dirname(__file__), count_matrix_path)
+    if not os.path.exists(count_matrix_path):
+        raise FileNotFoundError(f"Count matrix file not found at {count_matrix_path}")
+    
+    # Load and return the count matrix
     return load_npz(count_matrix_path)
 
 
@@ -317,53 +375,84 @@ def _apply_recency_boost(df):
     return df
 
 
-def fuzzy_title_match(search_query, page, per_page, df):
-    # Create normalized version of titles while preserving original case
-    title_map = {str(title).lower(): str(title) for title in df['title']}
-    normalized_titles = list(title_map.keys())
+# def fuzzy_title_match(search_query, page, per_page, df):
+#     # Create normalized version of titles while preserving original case
+#     title_map = {str(title).lower(): str(title) for title in df['title']}
+#     normalized_titles = list(title_map.keys())
     
-    # Perform fuzzy matching with case-insensitive comparison
-    results = process.extract(
-        search_query.lower(),
-        normalized_titles,
-        scorer=fuzz.WRatio,
-        score_cutoff=80,
-        limit=per_page * page  # Get enough results for pagination
-    )
+#     # Perform fuzzy matching with case-insensitive comparison
+#     results = process.extract(
+#         search_query.lower(),
+#         normalized_titles,
+#         scorer=fuzz.WRatio,
+#         score_cutoff=80,
+#         limit=per_page * page  # Get enough results for pagination
+#     )
     
-    # Sort by score descending, then by title ascending for consistency
-    results.sort(key=lambda x: (-x[1], x[0]))
+#     # Sort by score descending, then by title ascending for consistency
+#     results.sort(key=lambda x: (-x[1], x[0]))
     
-    # Get unique matches in order while preserving scores
-    seen = set()
-    ordered_matches = []
-    for match in results:
-        if match[0] not in seen:
-            seen.add(match[0])
-            ordered_matches.append(match)
+#     # Get unique matches in order while preserving scores
+#     seen = set()
+#     ordered_matches = []
+#     for match in results:
+#         if match[0] not in seen:
+#             seen.add(match[0])
+#             ordered_matches.append(match)
     
-    # Get original case titles in match order
-    matched_original_titles = [title_map[match[0]] for match in ordered_matches]
+#     # Get original case titles in match order
+#     matched_original_titles = [title_map[match[0]] for match in ordered_matches]
     
-    # Filter and order the DataFrame using the sorted titles
-    filtered = df[df['title'].str.lower().isin(seen)]
-    filtered = filtered.set_index('title').loc[matched_original_titles].reset_index()
+#     # Filter and order the DataFrame using the sorted titles
+#     filtered = df[df['title'].str.lower().isin(seen)]
+#     filtered = filtered.set_index('title').loc[matched_original_titles].reset_index()
     
-    # Paginate
-    start = (page - 1) * per_page
-    end = start + per_page
-    return filtered.iloc[start:end][["id", "title"]].to_dict(orient='records')
+#     # Paginate
+#     start = (page - 1) * per_page
+#     end = start + per_page
+#     return filtered.iloc[start:end][["id", "title"]].to_dict(orient='records')
 
 
 def compute_weighted_ratings(movies_df):
-    """Compute IMDb weighted ratings for a DataFrame of movies."""
+    """
+    Compute IMDb weighted ratings for a DataFrame of movies.
+
+    Args:
+        movies_df (DataFrame): DataFrame containing movie data with 'vote_average' and 'vote_count' columns.
+
+    Returns:
+        DataFrame: The input DataFrame with an additional 'weighted_rating' column.
+        float: The average vote across all movies.
+    """
+    
+    # Calculate the average vote and the vote threshold
     C = movies_df["vote_average"].mean()
     m = movies_df["vote_count"].quantile(0.65)
+
+    # Compute weighted ratings and add as a new column
     movies_df["weighted_rating"] = movies_df.apply(lambda x: weighted_rating(x, C, m), axis=1)
+    
     return movies_df, C
 
+
+import logging
+
 def find_similar_movies(movie_id, new_df, count_matrix):
-    """Find movies similar to the given movie id and cosine similarity."""
+    """
+    Find movies similar to the given movie ID using cosine similarity.
+
+    Args:
+        movie_id (int): The ID of the movie for which similar movies are to be found.
+        new_df (DataFrame): DataFrame containing movie data with at least an 'id' column.
+        count_matrix (sparse matrix): The matrix used for calculating movie similarities.
+
+    Returns:
+        DataFrame: A DataFrame of recommended movies with their details.
+        list: A list of similarity scores for the recommended movies.
+        str: None if successful, or an error message if an exception occurs.
+    """
+    
+    # Attempt to find the movie index based on the given movie_id
     try:
         movie_index = new_df[new_df["id"] == movie_id].index[0]
     except ValueError as e:
@@ -372,18 +461,16 @@ def find_similar_movies(movie_id, new_df, count_matrix):
         logging.critical(f"Unexpected error during title matching: {e}")
         raise e
 
-    similar_movie_indices, similarity_scores = get_top_similar_movies(
-        movie_index, count_matrix
-    )
+    # Get the top similar movies using the count matrix
+    similar_movie_indices, similarity_scores = get_top_similar_movies(movie_index, count_matrix)
+    
+    # Prepare and return the recommended movies DataFrame
     recommended_movies = new_df.iloc[similar_movie_indices][
         ["title", "id", "vote_count", "vote_average", "release_date", "poster_path"]
     ].copy()
-    recommended_movies["vote_count"] = (
-        recommended_movies["vote_count"].fillna(0).astype(int)
-    )
-    recommended_movies["vote_average"] = (
-        recommended_movies["vote_average"].fillna(0).astype(float)
-    )
+    recommended_movies["vote_count"] = recommended_movies["vote_count"].fillna(0).astype(int)
+    recommended_movies["vote_average"] = recommended_movies["vote_average"].fillna(0).astype(float)
+    
     return recommended_movies, similarity_scores, None
 
 def improved_hybrid_recommendations(
@@ -476,98 +563,96 @@ def improved_hybrid_recommendations(
 # TMDb API Key
 TMDB_API_KEY = os.getenv("TMDB_API_KEY")
 
-
 def get_movie_poster(movie):
     """
-    Fetch movie poster URL from TMDb API.
+    Fetch the movie poster URL from TMDb API or return the existing one.
 
-    This function attempts to get a movie poster URL in the following order:
-    1. Use existing poster_path if available
-    2. Fetch movie data from TMDb API if poster_path is missing
-    3. Return None if no poster is found
+    This function first checks if the movie has an existing 'poster_path'. If not,
+    it fetches the poster from TMDb API using the movie's ID.
 
     Parameters:
         movie (dict): Movie data containing 'id' and 'poster_path'
 
     Returns:
-        str: URL to the movie poster image, or None if not found
-
+        str: Movie poster URL or None if not found.
+        
     Note:
-        Requires TMDB_API_KEY environment variable to be set
+        Requires TMDB_API_KEY environment variable to be set.
     """
-    if movie["poster_path"]:
+    # Return the existing poster URL if available
+    if movie.get("poster_path"):
         return f"https://image.tmdb.org/t/p/w500{movie['poster_path']}"
-    else:
-        url = f"https://api.themoviedb.org/3/movie/{movie['id']}?api_key={TMDB_API_KEY}&language=en-US"
-        response = requests.get(url)
-        movie_data = response.json()
-        if "poster_path" in movie_data and movie_data["poster_path"]:
-            return f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
-    return None
+    
+    # Fetch poster from TMDb API if not available
+    url = f"https://api.themoviedb.org/3/movie/{movie['id']}?api_key={TMDB_API_KEY}&language=en-US"
+    response = requests.get(url)
+    movie_data = response.json()
 
+    # Return the fetched poster URL if available
+    if movie_data.get("poster_path"):
+        return f"https://image.tmdb.org/t/p/w500{movie_data['poster_path']}"
+    
+    return None
 def preprocess_movies(df):
     """
     Preprocess movie dataset for recommendation system.
 
-    This function performs the following preprocessing steps:
-    1. Creates a copy of the input DataFrame
-    2. Converts genres string to lowercase list
-    3. Extracts release year from release date
-    4. Handles missing or invalid data
+    This function processes:
+    - Converts genres string to lowercase list.
+    - Extracts the release year from the release date.
+    - Handles missing or invalid data.
 
     Parameters:
-        df (DataFrame): Raw movie dataset with 'genres' and 'release_date' columns
+        df (DataFrame): Raw movie dataset with 'genres' and 'release_date'
 
     Returns:
-        DataFrame: Preprocessed dataset with additional columns:
-            - genres_list: List of lowercase genres
-            - release_year: Extracted year from release date
+        DataFrame: Preprocessed dataset with 'genres_list' and 'release_year' columns.
     """
+    
+    # Create a copy of the original dataframe
     df = df.copy()
+    
+    # Convert genres string to a list of lowercase genres
     df["genres_list"] = df["genres"].apply(
         lambda x: [g.lower() for g in literal_eval(x)] if isinstance(x, str) else []
     )
+    
+    # Extract the release year from the release date
     df["release_year"] = pd.to_datetime(df["release_date"], errors="coerce").dt.year
+    
     return df
-
 
 def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rate=0.02):
     """
     Generate movie recommendations based on genre with weighted scoring.
 
-    This function provides genre-specific recommendations by:
-    1. Filtering movies by the specified genre
-    2. Computing weighted ratings using IMDb formula
-    3. Applying age penalty to favor newer movies
-    4. Considering genre relevance and popularity
+    This function filters movies by genre, computes weighted ratings, applies an age penalty to favor newer movies,
+    and ranks them based on genre relevance and popularity.
 
     Parameters:
-        genre (str): The genre to base recommendations on
-        df (DataFrame): Movie dataset with required columns
+        genre (str): The genre to base recommendations on.
+        df (DataFrame): Movie dataset with 'genres_list', 'vote_average', 'vote_count', 'release_year', etc.
         top_n (int, optional): Number of recommendations to return. Defaults to 100.
         quantile (float, optional): Quantile for vote count threshold. Defaults to 0.95.
         age_penalty_rate (float, optional): Rate of age penalty. Defaults to 0.02.
 
     Returns:
-        DataFrame: Recommended movies with columns:
-            - id: TMDb movie ID
-            - poster_path: Path to movie poster
-            - title: Movie title
-            - release_date: Release date
-
-    Note:
-        The function applies case-insensitive genre matching and handles
-        movies with multiple genres by considering genre position in the list.
+        DataFrame: Top movie recommendations with 'id', 'poster_path', 'title', 'release_date'.
     """
     current_year = dt.datetime.now().year
     C = df["vote_average"].mean()
     m = df["vote_count"].quantile(quantile)
     
+    # Filter movies by the specified genre
     genre = genre.lower()
     genre_movies = df[df["genres_list"].apply(lambda genres: genre in genres)].copy()
+
+    # Calculate weighted ratings
     genre_movies["weighted_rating"] = genre_movies.apply(
         lambda x: weighted_rating(x, C, m), axis=1
     )
+    
+    # Calculate genre position, apply age penalty, and compute adjusted score
     genre_movies["genre_index"] = genre_movies["genres_list"].apply(
         lambda x: x.index(genre) if genre in x else float("inf")
     )
@@ -577,8 +662,11 @@ def genre_based_recommender(genre, df, top_n=100, quantile=0.95, age_penalty_rat
     genre_movies["adjusted_score"] = (
         genre_movies["weighted_rating"] * genre_movies["age_penalty"]
     )
+    
+    # Sort by genre relevance, adjusted score, and popularity, and return top recommendations
     top_movies = genre_movies.sort_values(
         by=["genre_index", "adjusted_score", "popularity"],
         ascending=[True, False, False],
     ).head(top_n)
+
     return top_movies[["id", "poster_path", "title", "release_date"]]

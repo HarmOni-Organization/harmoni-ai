@@ -6,5 +6,4 @@ from .myModule import (
     load_model,
     load_count_matrix,
     preprocess_movies,
-    fuzzy_title_match
 )
