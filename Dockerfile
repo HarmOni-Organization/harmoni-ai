@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt pytest pytest-cov gunicorn
 COPY app.py .
 COPY my_modules/ ./my_modules/
 COPY tests/ ./tests/
+COPY data/ ./data/
 
 # Set proper permissions
 RUN chmod -R 755 /app
