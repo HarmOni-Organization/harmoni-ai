@@ -17,8 +17,11 @@ from my_modules import (
     load_data,
     load_model,
     load_count_matrix,
-    preprocess_movies,
+    preprocess_movies,create_response,
+    setup_logging
 )
+from my_modules.response_handler import create_response
+from my_modules.logger_config import setup_logging
 
 # Load environment variables from .env file
 load_dotenv()
@@ -27,37 +30,19 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing (CORS) for handling requests from different origins
 
-# Configure the root logger to capture all logs at the INFO level
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+# Configure logging
+setup_logging(app)
 
-# Remove any existing handlers to avoid duplicate logs
-for handler in logger.handlers[:]:
-    logger.removeHandler(handler)
-
-# Create and configure a new log handler for structured logging
-handler = logging.StreamHandler()
-formatter = logging.Formatter(
-    '{"time": "%(asctime)s", "level": "%(levelname)s", "message": "%(message)s", "path": "%(pathname)s", "line": %(lineno)d}'
-)
-handler.setFormatter(formatter)
-
-# Add the handler to the root logger
-logger.addHandler(handler)
-
-# Configure Flask's logger to propagate logs to the root logger
-app.logger.propagate = True
-app.logger.handlers.clear()
-
-# Ensure that third-party libraries (like Werkzeug) do not introduce additional handlers
-logging.getLogger("werkzeug").handlers.clear()
-logging.getLogger("werkzeug").propagate = True
+# Get logger for this module
+logger = logging.getLogger(__name__)
 
 # Load datasets and models
+logger.info("Loading datasets and models...")
 ratings_df, links_df, new_df = load_data()  # Load movie ratings and metadata
 best_svd1 = load_model()  # Load the trained Singular Value Decomposition (SVD) model
 count_matrix = load_count_matrix()  # Load precomputed count-based feature matrix
 new_df2 = preprocess_movies(new_df)  # Preprocess the movie dataset for recommendations
+logger.info("Datasets and models loaded successfully")
 
 # Define cache size for poster retrieval, with a default value of 1000 if not specified in .env
 cache_size = int(os.getenv("POSTER_CACHE_SIZE", 1000))
@@ -168,32 +153,28 @@ def recommend():
             "query_params": request.args.to_dict(),
         },
     )
+    
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "query_params": request.args.to_dict(),
+    }
 
     # Validate required parameters
     if not userId or not movieId:
         logger.warning(
             "Missing userId or movieId",
-            extra={
-                "http_method": request.method,
-                "remote_ip": request.remote_addr,
-                "user_agent": request.user_agent.string,
-                "query_params": request.args.to_dict(),
-            },
+            extra=request_info
         )
-        response = jsonify(
-            {"status": False, "message": "userId and movieId are required"}
+        return create_response(
+            status=False,
+            message="userId and movieId are required",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
         )
-        response.status_code = 400
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {(end_time - start_time):0.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        # Return a bad request response
-        return response, 400
 
     try:
         # Ensure movieId is a valid non-negative integer
@@ -201,58 +182,27 @@ def recommend():
         if movieId < 0:
             logger.warning(
                 "Negative movieId",
-                extra={
-                    "http_method": request.method,
-                    "remote_ip": request.remote_addr,
-                    "user_agent": request.user_agent.string,
-                    "query_params": request.args.to_dict(),
-                },
+                extra=request_info
             )
-            response = jsonify(
-                {
-                    "status": False,
-                    "message": "movieId must be non-negative",
-                }
+            return create_response(
+                status=False,
+                message="movieId must be non-negative",
+                status_code=400,
+                start_time=start_time,
+                request_info=request_info
             )
-            
-            #Bad Request
-            response.status_code = 400 
-            end_time = time.time()
-            logger.info(
-                f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-                extra={
-                    "status_code": response.status_code,
-                    "response_time": end_time - start_time,
-                },
-            )
-            # Return bad request
-            return response, 400
     except ValueError:
         logger.warning(
             "Invalid movieId format",
-            extra={
-                "http_method": request.method,
-                "remote_ip": request.remote_addr,
-                "user_agent": request.user_agent.string,
-                "query_params": request.args.to_dict(),
-            },
+            extra=request_info
         )
-        response = jsonify(
-            {
-                "status": False,
-                "message": "movieId must be valid integer",
-            }
+        return create_response(
+            status=False,
+            message="movieId must be valid integer",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
         )
-        response.status_code = 400
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response, 400
 
     try:
         # Ensure topN is a valid integer within limits (1 to 50)
@@ -262,7 +212,6 @@ def recommend():
         topN = 10
 
     try:
-    
         # Generate recommendations using the hybrid recommendation system
         recommendations, error_message = improved_hybrid_recommendations(
             user_id=userId,
@@ -277,61 +226,46 @@ def recommend():
     except Exception as e:
         # Log and return an internal server error response
         logger.error(f"Recommendation error: {str(e)}", exc_info=True)
-        return (
-            jsonify({"status": False, "message": "Internal server error occurred"}),
-            500,
+        return create_response(
+            status=False,
+            message="Internal server error occurred",
+            status_code=500,
+            start_time=start_time,
+            request_info=request_info
         )
 
     # Handle errors returned by the recommendation system
     if error_message:
-        
         logger.warning(
-            f"Recommendation failed: {error_message}", extra={"error": error_message}
+            f"Recommendation failed: {error_message}", 
+            extra={"error": error_message, **request_info}
         )
-        response = jsonify({"status": False, "message": error_message})
-        response.status_code = 400
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
+        return create_response(
+            status=False,
+            message=error_message,
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
         )
-        return response, 400
 
     # If no recommendations were found, return an empty list
     if recommendations is None or recommendations.empty:
         logger.info(
             f"No recommendations found for userId-{userId}, movieId-{movieId}",
-            extra={
-                "http_method": request.method,
-                "remote_ip": request.remote_addr,
-                "user_agent": request.user_agent.string,
-                "query_params": request.args.to_dict(),
+            extra=request_info
+        )
+        return create_response(
+            status=True,
+            message="",
+            data={
+                "userId": userId,
+                "movieId": movieId,
+                "recommendedMovies": [],
             },
+            status_code=200,
+            start_time=start_time,
+            request_info=request_info
         )
-        response = jsonify(
-            {
-                "status": True,
-                "message": "",
-                "data": {
-                    "userId": userId,
-                    "movieId": movieId,
-                    "recommendedMovies": [],
-                },
-            }
-        )
-        response.status_code = 200
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response, 200
 
     # Convert recommendations to a dictionary format and fetch movie posters
     result = recommendations.to_dict(orient="records")
@@ -341,37 +275,22 @@ def recommend():
     # Log successful recommendations
     logger.info(
         f"Generated {len(result)} recommendations for user {userId}, movieId {movieId}",
-        extra={
-            "http_method": request.method,
-            "remote_ip": request.remote_addr,
-            "user_agent": request.user_agent.string,
-            "query_params": request.args.to_dict(),
-        },
+        extra=request_info
     )
     
-    # Return recommendations as a JSON response
-    response = jsonify(
-        {
-            "status": True,
-            "message": "Recommendations generated successfully",
-            "data": {
-                "userId": userId,
-                "movieId": movieId,
-                "recommendedMovies": result,
-            },
-        }
-    )
-    response.status_code = 200
-    end_time = time.time()
-    #Log the response
-    logger.info(
-        f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-        extra={
-            "status_code": response.status_code,
-            "response_time": end_time - start_time,
+    # Return recommendations as a JSON response using the response handler
+    return create_response(
+        status=True,
+        message="Recommendations generated successfully",
+        data={
+            "userId": userId,
+            "movieId": movieId,
+            "recommendedMovies": result,
         },
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
     )
-    return response, 200
 
 
 @app.route("/genreBasedRecommendation", methods=["GET"])
@@ -425,39 +344,33 @@ def genreBasedRecommendation():
     genre = request.args.get("genre")
     topN = request.args.get("topN", 100)
 
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "query_params": request.args.to_dict(),
+    }
+
     # Log request details
     logger.info(
         f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/genreBasedRecommendation'",
-        extra={
-            "http_method": request.method,
-            "remote_ip": request.remote_addr,
-            "user_agent": request.user_agent.string,
-            "query_params": request.args.to_dict(),
-        },
+        extra=request_info
     )
 
     # Validate the genre parameter
     if not genre:
         logger.warning(
             "Missing genre",
-            extra={
-                "http_method": request.method,
-                "remote_ip": request.remote_addr,
-                "user_agent": request.user_agent.string,
-                "query_params": request.args.to_dict(),
-            },
+            extra=request_info
         )
-        response = jsonify({"status": False, "message": "Movie genre is required"})
-        response.status_code = 400
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
+        return create_response(
+            status=False,
+            message="Movie genre is required",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
         )
-        return response, 400
 
     # Validate and convert `topN` to an integer within the allowed range (1 to 5000)
     try:
@@ -473,35 +386,27 @@ def genreBasedRecommendation():
         recommendations = genre_based_recommender(genre=genre, df=new_df2, top_n=topN)
     except Exception as e:
         logger.error(f"Genre recommendation error: {str(e)}", exc_info=True)
-        return (
-            jsonify({"status": False, "message": "Internal server error occurred"}),
-            500,
+        return create_response(
+            status=False,
+            message="Internal server error occurred",
+            status_code=500,
+            start_time=start_time,
+            request_info=request_info
         )
 
     # Handle case where no recommendations are found
     if recommendations is None or recommendations.empty:
         logger.warning(
             f"No movies found for genre {genre}",
-            extra={
-                "http_method": request.method,
-                "remote_ip": request.remote_addr,
-                "user_agent": request.user_agent.string,
-                "query_params": request.args.to_dict(),
-            },
+            extra=request_info
         )
-        response = jsonify(
-            {"status": False, "message": f"No movies found for genre: {genre}"}
+        return create_response(
+            status=False,
+            message=f"No movies found for genre: {genre}",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
         )
-        response.status_code = 400
-        end_time = time.time()
-        logger.info(
-            f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-            extra={
-                "status_code": response.status_code,
-                "response_time": end_time - start_time,
-            },
-        )
-        return response, 400
 
     # Convert recommendations to a dictionary format for JSON response
     result = recommendations.to_dict(orient="records")
@@ -513,38 +418,21 @@ def genreBasedRecommendation():
     # Log successful recommendation generation
     logger.info(
         f"Generated {len(result)} genre recommendations for genre {genre}",
-        extra={
-            "http_method": request.method,
-            "remote_ip": request.remote_addr,
-            "user_agent": request.user_agent.string,
-            "query_params": request.args.to_dict(),
+        extra=request_info
+    )
+    
+    # Return response using the response handler
+    return create_response(
+        status=True,
+        message="Recommendations generated successfully",
+        data={
+            "genre": genre,
+            "recommendedMovies": result,
         },
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
     )
-    
-    # Prepare response with recommended movies
-    response = jsonify(
-        {
-            "status": True,
-            "message": "Recommendations generated successfully",
-            "data": {"genre": genre, "recommendedMovies": result},
-        }
-    )
-    
-    # Success
-    response.status_code = 200
-    
-    # Measure total processing time
-    end_time = time.time()
-    
-    # Log response details
-    logger.info(
-        f"Response Sent - Status Code:[{response.status_code}] - Response Time: {end_time - start_time:.2f}s",
-        extra={
-            "status_code": response.status_code,
-            "response_time": end_time - start_time,
-        },
-    )
-    return response, 200
 
 
 if __name__ == "__main__":
