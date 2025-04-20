@@ -17,11 +17,11 @@ from my_modules import (
     load_data,
     load_model,
     load_count_matrix,
-    preprocess_movies,create_response,
+    preprocess_movies,
+    create_response,
     setup_logging
 )
-from my_modules.response_handler import create_response
-from my_modules.logger_config import setup_logging
+
 
 # Load environment variables from .env file
 load_dotenv()
