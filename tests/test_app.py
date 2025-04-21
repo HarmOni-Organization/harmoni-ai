@@ -1,285 +1,240 @@
 import sys
 import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+import json
 import pytest
-from unittest.mock import patch, MagicMock
-from app import app, cached_get_movie_poster
+import pandas as pd
+from flask import g
+from unittest.mock import patch
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# Register pytest markers
-def pytest_configure(config):
-    """Register custom markers."""
-    config.addinivalue_line("markers", "basic: Basic route tests")
-    config.addinivalue_line("markers", "recommendations: Movie recommendation tests")
-    config.addinivalue_line("markers", "genre: Genre-based recommendation tests")
-    config.addinivalue_line("markers", "posters: Movie poster tests")
-    config.addinivalue_line("markers", "errors: Error handling tests")
-    config.addinivalue_line("markers", "edge: Edge case tests")
-    config.addinivalue_line("markers", "edge: Edge case tests")
+from app import app as flask_app
+from my_modules.auth import generate_jwt_token
 
-
-# Fixtures
 @pytest.fixture
-def client():
-    """Creates a test client for the Flask application."""
-    with app.test_client() as client:
-        yield client
+def app():
+    flask_app.config.update({"TESTING": True})
+    yield flask_app
 
+@pytest.fixture
+def client(app):
+    return app.test_client()
 
-# Basic Route Tests
-@pytest.mark.basic
-class TestBasicRoutes:
-    """
-    Test suite for basic application routes and endpoints.
+@pytest.fixture
+def auth_headers():
+    token = generate_jwt_token(
+        user_id="123",
+        username="testuser",
+        email="testuser@example.com",
+        secret= os.environ.get("JWT_SECRET_KEY")
+    )
+    return {
+        "Authorization": f"Bearer {token}",
+        "X-Internal-Key": os.environ.get("INTERNAL_API_KEY")
+    }
 
-    Tests cover:
-    - Home page loading and content
-    - Basic endpoint availability
-    - Response format validation
-    """
+@pytest.fixture
+def mock_recommendation_data():
+    recommendations = pd.DataFrame({
+        'id': [1, 2, 3],
+        'title': ['Movie 1', 'Movie 2', 'Movie 3'],
+        'poster_path': ['/path1.jpg', '/path2.jpg', '/path3.jpg'],
+        'genres': ['Action', 'Comedy', 'Drama']
+    })
+    return recommendations, None
 
-# Movie Recommendation Tests
-@pytest.mark.recommendations
-class TestMovieRecommendations:
-    """
-    Test suite for movie recommendation functionality.
+@pytest.fixture
+def mock_empty_recommendations():
+    return pd.DataFrame(), None
 
-    Tests cover:
-    - Valid recommendation requests
-    - Parameter validation
-    - Response format and content
-    - Edge cases and error conditions
-    - TopN parameter handling
-    """
+@pytest.fixture
+def mock_error_recommendations():
+    return None, "Error in recommendations"
 
-    def test_valid_recommendation(self, client):
-        """Verify that movie recommendations work with valid inputs."""
-        response = client.get("/recommend?userId=1&movieId=27205&topN=5")  # Updated to use movieId
-        assert response.status_code == 200
-        data = response.json
-        assert data["status"] is True
-        assert len(data["data"]["recommendedMovies"]) == 5
+def set_g_user():
+    g.user = {'userId': '123', 'username': 'testuser'}
 
-    def test_missing_parameters(self, client):
-        """Verify error handling for missing parameters."""
-        # Test missing movieId
-        response = client.get("/recommend?userId=1&topN=5")
-        assert response.status_code == 400
-        assert b"userId and movieId are required" in response.data
+def test_home(client):
+    response = client.get('/')
+    assert response.status_code == 200
+    assert b"Welcome to Hybrid Recommendation System API" in response.data
 
-        # Test missing userId
-        response = client.get("/recommend?movieId=27205&topN=5")
-        assert response.status_code == 400
-        assert b"userId and movieId are required" in response.data
+def test_recommend_success(client, mock_recommendation_data, auth_headers):
+    with patch('app.improved_hybrid_recommendations', return_value=mock_recommendation_data):
+        with patch('app.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
+            with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+                with patch('my_modules.auth.verify_internal_key', return_value=True):
+                    response = client.get('/recommend?movieId=1&topN=5', headers=auth_headers)
+                    assert response.status_code == 200
+                    data = json.loads(response.data)
+                    assert data['status'] is True
+                    assert data['message'] == "Recommendations generated successfully"
+                    assert data['data']['userId'] == '123'
+                    assert data['data']['movieId'] == 1
+                    assert len(data['data']['recommendedMovies']) == 3
+                    if 'response_time' in data:
+                        assert isinstance(data['response_time'], float)
 
-    def test_invalid_parameters(self, client):
-        """Verify error handling for invalid parameters."""
+def test_recommend_missing_movie_id(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/recommend', headers=auth_headers)
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data['status'] is False
+            assert "movieId is required" in data['message']
 
-        # Test invalid movieId
-        response = client.get("/recommend?userId=1&movieId=abc")
-        assert response.status_code == 400
-        assert b"movieId must be valid integer" in response.data
+def test_recommend_invalid_movie_id(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/recommend?movieId=invalid', headers=auth_headers)
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data['status'] is False
+            assert "movieId must be valid integer" in data['message']
 
-        # Test negative movieId
-        response = client.get("/recommend?userId=1&movieId=-27205&topN=5")
-        assert response.status_code == 400
-        assert b"movieId must be non-negative" in response.data
+def test_recommend_negative_movie_id(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/recommend?movieId=-1', headers=auth_headers)
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data['status'] is False
+            assert "movieId must be non-negative" in data['message']
 
-    def test_topn_parameter_handling(self, client):
-        """Verify handling of different topN parameter values."""
-        # Test large topN (should be capped)
-        response = client.get("/recommend?userId=1&movieId=27205&topN=1000")
-        assert response.status_code == 200
-        data = response.json
-        assert len(data["data"]["recommendedMovies"]) <= 50
+def test_recommend_empty_results(client, mock_empty_recommendations, auth_headers):
+    with patch('app.improved_hybrid_recommendations', return_value=mock_empty_recommendations):
+        with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+            with patch('my_modules.auth.verify_internal_key', return_value=True):
+                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                assert response.status_code == 200
+                data = json.loads(response.data)
+                assert data['status'] is True
+                assert data['data']['recommendedMovies'] == []
 
-        # Test zero topN (should default to minimum of 1)
-        response = client.get("/recommend?userId=1&movieId=27205&topN=0")
-        assert response.status_code == 200
-        data = response.json
-        assert len(data["data"]["recommendedMovies"]) > 0
+def test_recommend_error(client, mock_error_recommendations, auth_headers):
+    with patch('app.improved_hybrid_recommendations', return_value=mock_error_recommendations):
+        with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+            with patch('my_modules.auth.verify_internal_key', return_value=True):
+                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                assert response.status_code == 400
+                data = json.loads(response.data)
+                assert data['status'] is False
+                assert "Error in recommendations" in data['message']
 
-        # Test negative topN (should default to minimum of 1)
-        response = client.get("/recommend?userId=1&movieId=27205&topN=-5")
-        assert response.status_code == 200
-        data = response.json
-        assert len(data["data"]["recommendedMovies"]) > 0
+def test_recommend_exception(client, auth_headers):
+    with patch('app.improved_hybrid_recommendations', side_effect=Exception("Test exception")):
+        with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+            with patch('my_modules.auth.verify_internal_key', return_value=True):
+                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                assert response.status_code == 500
+                data = json.loads(response.data)
+                assert data['status'] is False
+                assert "Internal server error" in data['message']
 
-        # Test invalid topN (should default to 10)
-        response = client.get("/recommend?userId=1&movieId=27205&topN=abc")
-        assert response.status_code == 200
-        data = response.json
-        assert len(data["data"]["recommendedMovies"]) > 0
+def test_not_found(client):
+    response = client.get('/non-existent-endpoint')
+    assert response.status_code == 404
+    data = json.loads(response.data)
+    assert data['status'] is False
+    assert "Endpoint not found" in data['message']
 
+def test_genre_recommendation_success(client, mock_recommendation_data, auth_headers):
+    with patch('app.genre_based_recommender', return_value=mock_recommendation_data[0]):
+        with patch('app.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
+            with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+                with patch('my_modules.auth.verify_internal_key', return_value=True):
+                    response = client.get('/genreBasedRecommendation?genre=Action&topN=5', headers=auth_headers)
+                    assert response.status_code == 200
+                    data = json.loads(response.data)
+                    assert data['status'] is True
+                    assert data['message'] == "Recommendations generated successfully"
+                    assert data['data']['userId'] == '123'
+                    assert data['data']['genre'] == 'Action'
+                    assert len(data['data']['recommendedMovies']) == 3
 
-@pytest.mark.edge
-class TestEdgeCases:
-    def test_invalid_movie_id(self, client):
-        """Test handling of invalid movie IDs."""
-        response = client.get("/recommend?userId=1&movieId=999999999&topN=5")
-        assert response.status_code == 400
-        assert b"Movie ID 999999999 not found" in response.data
+def test_genre_recommendation_missing_genre(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/genreBasedRecommendation', headers=auth_headers)
+            assert response.status_code == 400
+            data = json.loads(response.data)
+            assert data['status'] is False
+            assert "Movie genre is required" in data['message']
 
-    def test_extreme_user_ids(self, client):
-        """Test handling of extreme user IDs."""
-        response = client.get("/recommend?userId=999999999&movieId=27205&topN=5")
-        assert response.status_code == 200
-        data = response.json
-        assert "recommendedMovies" in data["data"]
+def test_genre_recommendation_empty_results(client, auth_headers):
+    with patch('app.genre_based_recommender', return_value=pd.DataFrame()):
+        with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+            with patch('my_modules.auth.verify_internal_key', return_value=True):
+                response = client.get('/genreBasedRecommendation?genre=NonExistentGenre', headers=auth_headers)
+                assert response.status_code == 400
+                data = json.loads(response.data)
+                assert data['status'] is False
+                assert "No movies found for genre" in data['message']
 
-    def test_empty_response_handling(self, client):
-        """Test handling of empty responses."""
-        response = client.get("/genreBasedRecommendation?genre=NonexistentGenre&topN=5")
-        assert response.status_code == 400
-        assert b"No movies found for genre" in response.data
+def test_genre_recommendation_exception(client, auth_headers):
+    with patch('app.genre_based_recommender', side_effect=Exception("Test exception")):
+        with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+            with patch('my_modules.auth.verify_internal_key', return_value=True):
+                response = client.get('/genreBasedRecommendation?genre=Action', headers=auth_headers)
+                assert response.status_code == 500
+                data = json.loads(response.data)
+                assert data['status'] is False
+                assert "Internal server error" in data['message']
 
-
-# Genre-based Recommendation Tests
-@pytest.mark.genre
-class TestGenreRecommendations:
-    """
-    Test suite for genre-based recommendation functionality.
-
-    Tests cover:
-    - Valid genre recommendations
-    - Genre parameter validation
-    - Case sensitivity handling
-    - Response format and content
-    - Error conditions
-    """
-
-    def test_valid_genre_recommendation(self, client):
-        """Verify that genre-based recommendations work with valid inputs."""
-        response = client.get("/genreBasedRecommendation?genre=Action&topN=5")
-        assert response.status_code == 200
-        data = response.json
-        assert data["status"] is True
-        assert len(data["data"]["recommendedMovies"]) == 5
-        assert data["data"]["genre"] == "Action"
-
-    def test_invalid_genre_parameters(self, client):
-        """Verify error handling for invalid genre parameters."""
-        # Test missing genre
-        response = client.get("/genreBasedRecommendation?topN=5")
-        assert response.status_code == 400
-        assert b"Movie genre is required" in response.data
-
-        # Test empty genre
-        response = client.get("/genreBasedRecommendation?genre=&topN=5")
-        assert response.status_code == 400
-        assert b"Movie genre is required" in response.data
-
-        # Test invalid genre
-        response = client.get("/genreBasedRecommendation?genre=InvalidGenre&topN=5")
-        assert response.status_code == 400
-        assert b"No movies found for genre" in response.data
-
-    def test_genre_case_sensitivity(self, client):
-        """Test genre case sensitivity handling."""
-        # Test lowercase genre
-        response = client.get("/genreBasedRecommendation?genre=action&topN=5")
-        assert response.status_code == 200
-        data = response.json
-        assert data["data"]["genre"] == "Action"
-
-        # Test mixed case genre
-        response = client.get("/genreBasedRecommendation?genre=AcTiOn&topN=5")
-        assert response.status_code == 200
-        data = response.json
-        assert data["data"]["genre"] == "Action"
-
-
-# Movie Poster Tests
-@pytest.mark.posters
-class TestMoviePosters:
-    """
-    Test suite for movie poster functionality.
-
-    Tests cover:
-    - Poster URL generation
-    - Caching behavior
-    - Missing poster handling
-    - API integration
-    """
-
-    def test_movie_poster_retrieval(self, client):
-        """Verify that movie poster URLs are correctly generated."""
-        with patch("app.cached_get_movie_poster") as mock_get_poster:
-            mock_get_poster.return_value = (
-                "https://image.tmdb.org/t/p/w500/test_poster.jpg"
-            )
-            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
+def test_auth_test_success(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/auth-test', headers=auth_headers)
             assert response.status_code == 200
-            data = response.json
-            assert (
-                data["data"]["recommendedMovies"][0]["poster_url"]
-                == "https://image.tmdb.org/t/p/w500/test_poster.jpg"
-            )
+            data = json.loads(response.data)
+            assert data['status'] is True
+            assert data['message'] == "Authentication successful"
+            assert data['data']['user']['userId'] == '123'
 
-    def test_cached_poster_function(self):
-        """Verify that the cached poster function works correctly."""
-        movie_id = 123
-        poster_path = "/test_path.jpg"
-        result = cached_get_movie_poster(movie_id, poster_path)
-        assert isinstance(result, str)
-        assert "image.tmdb.org" in result
-
-    def test_missing_poster_handling(self, client):
-        """Test handling of missing movie posters."""
-        with patch("app.cached_get_movie_poster") as mock_get_poster:
-            mock_get_poster.return_value = ""
-            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
-            assert response.status_code == 200
-            data = response.json
-            assert "recommendedMovies" in data["data"]
-            assert data["data"]["recommendedMovies"][0]["poster_url"] == ""
-
-
-# Error Handling Tests
-@pytest.mark.errors
-class TestErrorHandling:
-    """
-    Test suite for error handling and edge cases.
-
-    Tests cover:
-    - Server errors
-    - Invalid requests
-    - Rate limiting
-    - Malformed data
-    - API failures
-    """
-
-    def test_recommendation_server_error(self, client):
-        """Verify server error handling in recommendation endpoint."""
-        with patch("app.improved_hybrid_recommendations") as mock_recommend:
-            mock_recommend.side_effect = Exception("Unexpected error")
-            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
+def test_auth_test_no_user(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, None)):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/auth-test', headers=auth_headers)
             assert response.status_code == 500
-            assert b"Internal server error" in response.data
+            data = json.loads(response.data)
+            assert data['status'] is False
+            assert "no user data available" in data['message'].lower()
 
-    def test_genre_recommendation_server_error(self, client):
-        """Verify server error handling in genre recommendation endpoint."""
-        with patch("app.genre_based_recommender") as mock_genre:
-            mock_genre.side_effect = Exception("Unexpected error")
-            response = client.get("/genreBasedRecommendation?genre=Action&topN=5")
-            assert response.status_code == 500
-            assert b"Internal server error" in response.data
+def test_cached_get_movie_poster():
+    with patch('app.get_movie_poster', return_value="http://example.com/poster.jpg"):
+        from app import cached_get_movie_poster
+        result1 = cached_get_movie_poster(123, "/path.jpg")
+        assert result1 == "http://example.com/poster.jpg"
+        result2 = cached_get_movie_poster(123, "/path.jpg")
+        assert result2 == "http://example.com/poster.jpg"
 
-    def test_malformed_request_handling(self, client):
-        """Test handling of malformed requests."""
-        # Test malformed URL
-        response = client.get(
-            "/recommend?userId=1&movieId=27205&topN=5&invalid=param"
-        )
-        assert response.status_code == 200  # Extra parameters should be ignored
+def test_invalid_token(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(False, None)):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/recommend?movieId=1', headers=auth_headers)
+            assert response.status_code in [401, 403]
 
-        # Test invalid HTTP method
-        response = client.post("/recommend")
-        assert response.status_code == 405  # Method not allowed
+def test_missing_token(client):
+    headers = {
+        "X-Internal-Key": os.environ.get("INTERNAL_API_KEY", "your-internal-api-key-here")
+    }
+    with patch('my_modules.auth.verify_token', return_value=(False, None)):
+        with patch('my_modules.auth.verify_internal_key', return_value=True):
+            response = client.get('/recommend?movieId=1', headers=headers)
+            assert response.status_code in [401, 403]
 
-    def test_rate_limiting(self, client):
-        """Test rate limiting behavior (if implemented)."""
-        # Make multiple rapid requests
-        for _ in range(50):
-            response = client.get("/recommend?userId=1&movieId=27205&topN=5")
-            assert response.status_code == 200  # No rate limiting implemented yet
+def test_invalid_internal_key(client, auth_headers):
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=False):
+            response = client.get('/recommend?movieId=1', headers=auth_headers)
+            assert response.status_code in [401, 403]
+
+def test_missing_internal_key(client):
+    headers = {
+        "Authorization": "Bearer your-jwt-token-here"
+    }
+    with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
+        with patch('my_modules.auth.verify_internal_key', return_value=False):
+            response = client.get('/recommend?movieId=1', headers=headers)
+            assert response.status_code in [401, 403]

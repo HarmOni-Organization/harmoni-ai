@@ -9,6 +9,7 @@ services:
       - FLASK_ENV=development
       - DATA_DIR=/app/data
       - MODEL_DIR=/app/models
+      - LOG_DIR=/app/logs
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -16,6 +17,7 @@ services:
       - ./app.py:/app/app.py
       - ./.env:/app/.env
       - ./tests:/app/tests
+      - ./logs:/app/logs
     hostname: web
     domainname: harmoni-ai.local
     logging:
@@ -31,6 +33,7 @@ services:
       - FLASK_ENV=testing
       - DATA_DIR=/app/data
       - MODEL_DIR=/app/models
+      - LOG_DIR=/app/logs
     volumes:
       - ./data:/app/data
       - ./models:/app/models
@@ -38,4 +41,5 @@ services:
       - ./app.py:/app/app.py
       - ./.env:/app/.env
       - ./tests:/app/tests
+      - ./logs:/app/logs
     command: pytest -v --cov=app --cov=my_modules tests/

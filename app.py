@@ -5,7 +5,7 @@ import logging
 from functools import lru_cache
 
 # Third-Party Imports
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_cors import CORS
 from dotenv import load_dotenv
 
@@ -21,6 +21,7 @@ from my_modules import (
     create_response,
     setup_logging
 )
+from my_modules.auth import require_auth
 
 
 # Load environment variables from .env file
@@ -89,16 +90,16 @@ def home():
 
 
 @app.route("/recommend", methods=["GET"])
+@require_auth  # Add authentication requirement
 def recommend():
     """
     Handles movie recommendations based on user and movie input.
 
-    This endpoint processes a request containing `userId`, `movieId`, and an optional `topN` parameter.
-    It validates input parameters, logs request details, and generates movie recommendations using
-    an improved hybrid recommendation system.
+    This endpoint processes a request containing `movieId` and an optional `topN` parameter.
+    It extracts the userId from the authentication token, validates input parameters,
+    logs request details, and generates movie recommendations using an improved hybrid recommendation system.
 
     Query Parameters:
-       - userId (str): The ID of the user requesting recommendations. Required.
        - movieId (str): The ID of the movie for generating recommendations. Required.
        - topN (str, optional): The number of top recommendations to return (default is 10, max is 50).
 
@@ -107,50 +108,27 @@ def recommend():
             - status (bool): Indicates success or failure of the request.
             - message (str): A message describing the response.
             - data (dict): Contains `userId`, `movieId`, and a list of `recommendedMovies` if successful.
-
-    Possible Response Status Codes:
-        - 200: Successfully generated recommendations.
-        - 400: Bad request (e.g., missing or invalid parameters).
-        - 500: Internal server error.
-
-    Logging:
-        - Logs request metadata, including client IP, user agent, and query parameters.
-        - Logs warnings for missing or invalid inputs.
-        - Logs errors if the recommendation process encounters an exception.
-        - Logs the number of generated recommendations and response times.
-
-    Example:
-        Request: GET /recommend?userId=123&movieId=456&topN=5
-        Response:
-        {
-            "status": True,
-            "message": "Recommendations generated successfully",
-            "data": {
-                "userId": "123",
-                "movieId": "456",
-                "recommendedMovies": [
-                    {"id": 789, "title": "Movie Title", "poster_url": "URL"}
-                ]
-            }
-        }
     """
     
     # Track request processing time
     start_time = time.time()
     
+    # Extract userId from the authentication token
+    userId = g.user.get('userId')
+    
     # Extract query parameters from the request
-    userId = request.args.get("userId")
     movieId = request.args.get("movieId")
     topN = request.args.get("topN", "10")
 
     # Log incoming request details
     logger.info(
-        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/rcommend'",
+        f"Received request from: [{request.remote_addr}] to  [{request.method}]:'/recommend'",
         extra={
             "http_method": request.method,
             "remote_ip": request.remote_addr,
             "user_agent": request.user_agent.string,
             "query_params": request.args.to_dict(),
+            "user_id": userId
         },
     )
     
@@ -160,17 +138,31 @@ def recommend():
         "remote_ip": request.remote_addr,
         "user_agent": request.user_agent.string,
         "query_params": request.args.to_dict(),
+        "user_id": userId
     }
 
     # Validate required parameters
-    if not userId or not movieId:
+    if not userId:
         logger.warning(
-            "Missing userId or movieId",
+            "Missing userId in token",
             extra=request_info
         )
         return create_response(
             status=False,
-            message="userId and movieId are required",
+            message="User identification not found in token",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
+        )
+        
+    if not movieId:
+        logger.warning(
+            "Missing movieId",
+            extra=request_info
+        )
+        return create_response(
+            status=False,
+            message="movieId is required",
             status_code=400,
             start_time=start_time,
             request_info=request_info
@@ -292,53 +284,14 @@ def recommend():
         request_info=request_info
     )
 
-
 @app.route("/genreBasedRecommendation", methods=["GET"])
+@require_auth  # Add authentication requirement
 def genreBasedRecommendation():
-    """
-    Provides movie recommendations based on a specified genre.
-
-    This endpoint processes a request containing a `genre` parameter and an optional `topN` parameter.
-    It validates input parameters, logs request details, and generates a list of recommended movies
-    based on the specified genre.
-
-    Query Parameters:
-        genre (str): The movie genre for which recommendations are requested. Required.
-        topN (str, optional): The number of top recommendations to return (default is 100, max is 5000).
-
-    Returns:
-        Response (JSON): A JSON response containing:
-            - status (bool): Indicates success or failure of the request.
-            - message (str): A message describing the response.
-            - data (dict): Contains `genre` and a list of `recommendedMovies` if successful.
-
-    Possible Response Status Codes:
-        - 200: Successfully generated genre-based recommendations.
-        - 400: Bad request (e.g., missing or invalid parameters, no movies found for the given genre).
-        - 500: Internal server error.
-
-    Logging:
-        - Logs request metadata, including client IP, user agent, and query parameters.
-        - Logs warnings for missing genre input or if no movies match the specified genre.
-        - Logs errors if the recommendation process encounters an exception.
-        - Logs the number of generated recommendations and response times.
-
-    Example:
-        Request: GET /genreBasedRecommendation?genre=Action&topN=5
-        Response:
-        {
-            "status": True,
-            "message": "Recommendations generated successfully",
-            "data": {
-                "genre": "Action",
-                "recommendedMovies": [
-                    {"id": 123, "title": "Action Movie", "poster_url": "URL"}
-                ]
-            }
-        }
-    """
     # Start measuring response time
     start_time = time.time()
+    
+    # Extract userId from the authentication token
+    userId = g.user.get('userId')
     
     # Retrieve request parameters
     genre = request.args.get("genre")
@@ -350,6 +303,7 @@ def genreBasedRecommendation():
         "remote_ip": request.remote_addr,
         "user_agent": request.user_agent.string,
         "query_params": request.args.to_dict(),
+        "user_id": userId
     }
 
     # Log request details
@@ -426,12 +380,118 @@ def genreBasedRecommendation():
         status=True,
         message="Recommendations generated successfully",
         data={
+            "userId": userId,
             "genre": genre,
             "recommendedMovies": result,
         },
         status_code=200,
         start_time=start_time,
         request_info=request_info
+    )
+
+
+# Add a test endpoint to verify authentication is working
+@app.route("/auth-test")
+@require_auth
+def auth_test():
+    """
+    Test endpoint to verify authentication is working.
+    
+    This endpoint requires valid authentication and returns the user information from the token.
+    It logs the request details and handles potential edge cases with the user data.
+    
+    Returns:
+        Response (JSON): A JSON response containing the user information from the token.
+    """
+    # Start measuring response time
+    start_time = time.time()
+    
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "path": request.path
+    }
+    
+    # Log the authentication test request
+    logger.info(
+        f"Authentication test request from: [{request.remote_addr}] to [{request.method}]:'/auth-test'",
+        extra=request_info
+    )
+    
+    # Check if user data exists in g object
+    if not hasattr(g, 'user') or not g.user:
+        logger.warning(
+            "Authentication test failed: No user data available",
+            extra=request_info
+        )
+        return create_response(
+            status=False,
+            message="Authentication successful but no user data available",
+            status_code=500,
+            start_time=start_time,
+            request_info=request_info
+        )
+    
+    # Sanitize user data for logging (remove sensitive information)
+    safe_user_data = {k: v for k, v in g.user.items() if k.lower() not in ('password', 'token', 'secret')}
+    
+    # Log successful authentication with user info
+    logger.info(
+        f"Authentication test successful for user: {safe_user_data.get('username', safe_user_data.get('sub', 'unknown'))}",
+        extra={**request_info, "user_id": safe_user_data.get('userId', safe_user_data.get('sub', 'unknown'))}
+    )
+    
+    # Return successful response with user data
+    return create_response(
+        status=True,
+        message="Authentication successful",
+        data={"user": g.user},
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
+    )
+
+
+# Add a 404 error handler for routes that don't exist
+@app.errorhandler(404)
+def not_found(e):
+    """
+    Handles requests to non-existent routes.
+    
+    This function is triggered when a client attempts to access a route that doesn't exist.
+    It returns a standardized JSON response with a 404 status code.
+    
+    Args:
+        e: The error object passed by Flask.
+        
+    Returns:
+        Response (JSON): A JSON response with a 404 status code and error message.
+    """
+    # Log the 404 error
+    logger.warning(
+        f"404 Not Found: {request.path}",
+        extra={
+            "http_method": request.method,
+            "remote_ip": request.remote_addr,
+            "user_agent": request.user_agent.string,
+            "path": request.path
+        }
+    )
+    
+    # Return a standardized response
+    return create_response(
+        status=False,
+        message=f"Endpoint not found: {request.path}",
+        status_code=404,
+        start_time=time.time(),
+        request_info={
+            "http_method": request.method,
+            "remote_ip": request.remote_addr,
+            "user_agent": request.user_agent.string,
+            "path": request.path
+        }
     )
 
 
