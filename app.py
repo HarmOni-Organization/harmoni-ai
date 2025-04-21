@@ -287,6 +287,27 @@ def recommend():
 @app.route("/genreBasedRecommendation", methods=["GET"])
 @require_auth  # Add authentication requirement
 def genreBasedRecommendation():
+    """
+    Handles movie recommendations based on a specific genre.
+    
+    This endpoint processes a request containing a `genre` parameter and an optional `topN` parameter.
+    It extracts the userId from the authentication token, validates input parameters,
+    logs request details, and generates movie recommendations for the specified genre.
+    
+    Query Parameters:
+        - genre (str): The movie genre for generating recommendations. Required.
+        - topN (str, optional): The number of top recommendations to return (default is 100, max is 5000).
+    
+    Returns:
+        Response (JSON): A JSON response containing:
+            - status (bool): Indicates success or failure of the request.
+            - message (str): A message describing the response.
+            - data (dict): Contains `userId`, `genre`, and a list of `recommendedMovies` if successful.
+            - response_time (float): The time taken to process the request (if enabled).
+    
+    Raises:
+        Exception: If an error occurs during the recommendation process.
+    """
     # Start measuring response time
     start_time = time.time()
     
