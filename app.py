@@ -76,18 +76,175 @@ def cached_get_movie_poster(movie_id, poster_path):
 def home():
     """
     Handles the root endpoint ("/") of the Hybrid Recommendation System API.
-
-    Logs the incoming request details, including the client's IP address and HTTP method.
-    Returns a welcome message.
-
+    
+    This endpoint provides general information about the API, including version,
+    available endpoints, and basic usage instructions. It logs the incoming request
+    details and returns a structured JSON response.
+    
     Returns:
-        str: A welcome message for the API.
+        Response (JSON): A JSON response containing API information and documentation.
     """
+    # Start measuring response time
+    start_time = time.time()
+    
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "path": request.path
+    }
+    
+    # Log the request
     logger.info(
-        f"Received request from: [{request.remote_addr}] to  [{request.method}]'/'"
+        f"Received request from: [{request.remote_addr}] to [{request.method}]:'/'",
+        extra=request_info
     )
-    return "Welcome to Hybrid Recommendation System API"
+    
+    # API information
+    api_info = {
+        "name": "Harmoni AI - Movie Recommendation System API",
+        "version": "1.0.0",
+        "description": "A sophisticated movie recommendation system that leverages hybrid recommendation techniques to provide personalized movie suggestions.",
+        "endpoints": [
+            {
+                "path": "/recommend",
+                "method": "GET",
+                "description": "Get personalized movie recommendations based on user ID and movie ID",
+                "authentication": "Required",
+                "parameters": [
+                    {"name": "movieId", "type": "integer", "required": True, "description": "ID of the movie to base recommendations on"},
+                    {"name": "topN", "type": "integer", "required": False, "default": 10, "max": 50, "description": "Number of recommendations to return"}
+                ]
+            },
+            {
+                "path": "/genreBasedRecommendation",
+                "method": "GET",
+                "description": "Get movie recommendations based on a specific genre",
+                "authentication": "Required",
+                "parameters": [
+                    {"name": "genre", "type": "string", "required": True, "description": "Movie genre to get recommendations for"},
+                    {"name": "topN", "type": "integer", "required": False, "default": 100, "max": 5000, "description": "Number of recommendations to return"}
+                ]
+            },
+            {
+                "path": "/poster",
+                "method": "GET",
+                "description": "Get a movie poster URL",
+                "authentication": "Not required",
+                "parameters": [
+                    {"name": "movieId", "type": "integer", "required": True, "description": "ID of the movie"},
+                    {"name": "posterPath", "type": "string", "required": True, "description": "Relative path to the movie's poster image"}
+                ]
+            },
+            {
+                "path": "/auth-test",
+                "method": "GET",
+                "description": "Test endpoint to verify authentication",
+                "authentication": "Required",
+                "parameters": []
+            }
+        ],
+        "authentication": "This API uses token-based authentication. Include the authentication token in the request header: Authorization: Bearer <your_token>"
+    }
+    
+    # Return API information as a JSON response
+    return create_response(
+        status=True,
+        message="Welcome to Harmoni AI - Movie Recommendation System API",
+        data=api_info,
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
+    )
 
+
+@app.route("/poster", methods=["GET"])
+@require_auth
+def get_poster():
+    """
+    Retrieves a movie poster URL based on movie ID and poster path.
+    
+    This endpoint accepts movieId and posterPath parameters and returns
+    the corresponding poster URL. It uses caching to optimize repeated requests.
+    
+    Query Parameters:
+        - movieId (str): The ID of the movie. Required.
+        - posterPath (str): The relative path to the movie's poster image. Required.
+        
+    Returns:
+        Response (JSON): A JSON response containing:
+            - status (bool): Indicates success or failure of the request.
+            - message (str): A message describing the response.
+            - data (dict): Contains the poster URL if successful.
+    """
+    # Start measuring response time
+    start_time = time.time()
+    
+    # Extract query parameters
+    movie_id = request.args.get("movieId")
+    poster_path = request.args.get("posterPath")
+    
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "query_params": request.args.to_dict()
+    }
+    
+    # Log request details
+    logger.info(
+        f"Received request from: [{request.remote_addr}] to [{request.method}]:'/poster'",
+        extra=request_info
+    )
+    
+    # Validate required parameters
+    if not movie_id:
+        logger.warning("Missing movieId", extra=request_info)
+        return create_response(
+            status=False,
+            message="movieId is required",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
+        )
+    
+    if not poster_path:
+        logger.warning("Missing posterPath", extra=request_info)
+        return create_response(
+            status=False,
+            message="posterPath is required",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
+        )
+    
+    try:
+        # Ensure movieId is a valid integer
+        movie_id = int(movie_id)
+    except ValueError:
+        logger.warning("Invalid movieId format", extra=request_info)
+        return create_response(
+            status=False,
+            message="movieId must be a valid integer",
+            status_code=400,
+            start_time=start_time,
+            request_info=request_info
+        )
+    
+    # Get the poster URL
+    poster_url = cached_get_movie_poster(movie_id, poster_path)
+    
+    # Return the poster URL
+    return create_response(
+        status=True,
+        message="Poster URL retrieved successfully",
+        data={"posterUrl": poster_url},
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
+    )
 
 @app.route("/recommend", methods=["GET"])
 @require_auth  # Add authentication requirement
@@ -259,11 +416,9 @@ def recommend():
             request_info=request_info
         )
 
-    # Convert recommendations to a dictionary format and fetch movie posters
+    # Convert recommendations to a dictionary format
     result = recommendations.to_dict(orient="records")
-    for movie in result:
-        movie["poster_url"] = cached_get_movie_poster(movie["id"], movie["poster_path"])
-
+    
     # Log successful recommendations
     logger.info(
         f"Generated {len(result)} recommendations for user {userId}, movieId {movieId}",
@@ -386,10 +541,6 @@ def genreBasedRecommendation():
     # Convert recommendations to a dictionary format for JSON response
     result = recommendations.to_dict(orient="records")
     
-    # Fetch movie poster URLs for each recommended movie
-    for movie in result:
-        movie["poster_url"] = cached_get_movie_poster(movie["id"], movie["poster_path"])
-
     # Log successful recommendation generation
     logger.info(
         f"Generated {len(result)} genre recommendations for genre {genre}",
