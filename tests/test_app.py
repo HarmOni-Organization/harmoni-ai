@@ -98,14 +98,30 @@ def set_g_user():
 
 def test_home(client):
     """
-    Test the home endpoint to ensure it returns a 200 status and the expected welcome message.
+    Test the home endpoint to ensure it returns a 200 status and the expected API information.
 
     Args:
         client (FlaskClient): The test client.
     """
     response = client.get('/')
     assert response.status_code == 200
-    assert b"Welcome to Hybrid Recommendation System API" in response.data
+    
+    # Parse the JSON response
+    data = json.loads(response.data)
+    
+    # Check the structure and content of the response
+    assert data['status'] is True
+    assert 'message' in data
+    assert 'Welcome to Hybrid Recommendation System API' in data['message']
+    assert 'data' in data
+    assert 'endpoints' in data['data']
+    assert isinstance(data['data']['endpoints'], list)
+    
+    # Verify that the key endpoints are included in the response
+    endpoint_paths = [endpoint['path'] for endpoint in data['data']['endpoints']]
+    assert '/' in endpoint_paths
+    assert '/recommend' in endpoint_paths
+    assert '/genreBasedRecommendation' in endpoint_paths
 
 def test_recommend_success(client, mock_recommendation_data, auth_headers):
     """
