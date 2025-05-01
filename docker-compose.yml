@@ -18,6 +18,7 @@ services:
       - ./.env:/app/.env
       - ./tests:/app/tests
       - ./logs:/app/logs
+      - ./routes:/app/routes
     hostname: web
     domainname: harmoni-ai.local
     logging:
@@ -42,4 +43,5 @@ services:
       - ./.env:/app/.env
       - ./tests:/app/tests
       - ./logs:/app/logs
+      - ./routes:/app/routes
     command: pytest -v --cov=app --cov=my_modules tests/

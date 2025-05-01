@@ -23,6 +23,7 @@ COPY app.py .
 COPY data/ ./data/
 COPY models/ ./models/
 COPY my_modules/ ./my_modules/
+COPY routes/ ./routes/
 COPY tests/ ./tests/
 
 # Set proper permissions

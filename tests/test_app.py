@@ -97,7 +97,7 @@ def set_g_user():
     g.user = {'userId': '123', 'username': 'testuser'}
 
 def test_home(client):
-    response = client.get('/')
+    response = client.get('/api/v1/')
     assert response.status_code == 200
 
     # Ensure the response is JSON
@@ -113,24 +113,25 @@ def test_home(client):
     if 'data' in data and 'endpoints' in data['data']:
         assert isinstance(data['data']['endpoints'], list)
         endpoint_paths = [ep.get('path') for ep in data['data']['endpoints']]
-        # Check for required endpoints (but don't require the root path to be listed)
-        assert '/recommend' in endpoint_paths
-        assert '/genreBasedRecommendation' in endpoint_paths
+        # Check for required endpoints with updated paths
+        assert '/api/v1/movies/recommend' in endpoint_paths
+        assert '/api/v1/movies/genre-based' in endpoint_paths
+        assert '/api/v1/movies/poster' in endpoint_paths
 
 def test_recommend_success(client, mock_recommendation_data, auth_headers):
     """
-    Test the /recommend endpoint for successful recommendation retrieval.
+    Test the '/api/v1/movies/recommend' endpoint for successful recommendation retrieval.
 
     Args:
         client (FlaskClient): The test client.
         mock_recommendation_data (tuple): Mocked recommendation data.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.improved_hybrid_recommendations', return_value=mock_recommendation_data):
-        with patch('app.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
+    with patch('routes.movies.improved_hybrid_recommendations', return_value=mock_recommendation_data):
+        with patch('routes.movies.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
             with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
                 with patch('my_modules.auth.verify_internal_key', return_value=True):
-                    response = client.get('/recommend?movieId=1&topN=5', headers=auth_headers)
+                    response = client.get('/api/v1/movies/recommend?movieId=1&topN=5', headers=auth_headers)
                     assert response.status_code == 200
                     data = json.loads(response.data)
                     assert data['status'] is True
@@ -151,7 +152,7 @@ def test_recommend_missing_movie_id(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/recommend', headers=auth_headers)
+            response = client.get('/api/v1/movies/recommend', headers=auth_headers)
             assert response.status_code == 400
             data = json.loads(response.data)
             assert data['status'] is False
@@ -159,7 +160,7 @@ def test_recommend_missing_movie_id(client, auth_headers):
 
 def test_recommend_invalid_movie_id(client, auth_headers):
     """
-    Test the /recommend endpoint for an invalid (non-integer) movieId parameter.
+    Test the /api/v1/movies/recommend endpoint for an invalid (non-integer) movieId parameter.
 
     Args:
         client (FlaskClient): The test client.
@@ -167,7 +168,7 @@ def test_recommend_invalid_movie_id(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/recommend?movieId=invalid', headers=auth_headers)
+            response = client.get('/api/v1/movies/recommend?movieId=invalid', headers=auth_headers)
             assert response.status_code == 400
             data = json.loads(response.data)
             assert data['status'] is False
@@ -175,7 +176,7 @@ def test_recommend_invalid_movie_id(client, auth_headers):
 
 def test_recommend_negative_movie_id(client, auth_headers):
     """
-    Test the /recommend endpoint for a negative movieId parameter.
+    Test the/api/v1/movies/recommend endpoint for a negative movieId parameter.
 
     Args:
         client (FlaskClient): The test client.
@@ -183,7 +184,7 @@ def test_recommend_negative_movie_id(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/recommend?movieId=-1', headers=auth_headers)
+            response = client.get('/api/v1/movies/recommend?movieId=-1', headers=auth_headers)
             assert response.status_code == 400
             data = json.loads(response.data)
             assert data['status'] is False
@@ -191,17 +192,17 @@ def test_recommend_negative_movie_id(client, auth_headers):
 
 def test_recommend_empty_results(client, mock_empty_recommendations, auth_headers):
     """
-    Test the /recommend endpoint when no recommendations are found.
+    Test the /api/v1/movies/recommend endpoint when no recommendations are found.
 
     Args:
         client (FlaskClient): The test client.
         mock_empty_recommendations (tuple): Mocked empty recommendations.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.improved_hybrid_recommendations', return_value=mock_empty_recommendations):
+    with patch('routes.movies.improved_hybrid_recommendations', return_value=mock_empty_recommendations):
         with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
             with patch('my_modules.auth.verify_internal_key', return_value=True):
-                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                response = client.get('/api/v1/movies/recommend?movieId=123', headers=auth_headers)
                 assert response.status_code == 200
                 data = json.loads(response.data)
                 assert data['status'] is True
@@ -209,17 +210,17 @@ def test_recommend_empty_results(client, mock_empty_recommendations, auth_header
 
 def test_recommend_error(client, mock_error_recommendations, auth_headers):
     """
-    Test the /recommend endpoint when an error occurs in the recommendation process.
+    Test the /api/v1/movies/recommend endpoint when an error occurs in the recommendation process.
 
     Args:
         client (FlaskClient): The test client.
         mock_error_recommendations (tuple): Mocked error recommendations.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.improved_hybrid_recommendations', return_value=mock_error_recommendations):
+    with patch('routes.movies.improved_hybrid_recommendations', return_value=mock_error_recommendations):
         with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
             with patch('my_modules.auth.verify_internal_key', return_value=True):
-                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                response = client.get('/api/v1/movies/recommend?movieId=123', headers=auth_headers)
                 assert response.status_code == 400
                 data = json.loads(response.data)
                 assert data['status'] is False
@@ -227,16 +228,16 @@ def test_recommend_error(client, mock_error_recommendations, auth_headers):
 
 def test_recommend_exception(client, auth_headers):
     """
-    Test the /recommend endpoint for unhandled exceptions.
+    Test the /api/v1/movies/recommend endpoint for unhandled exceptions.
 
     Args:
         client (FlaskClient): The test client.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.improved_hybrid_recommendations', side_effect=Exception("Test exception")):
+    with patch('routes.movies.improved_hybrid_recommendations', side_effect=Exception("Test exception")):
         with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
             with patch('my_modules.auth.verify_internal_key', return_value=True):
-                response = client.get('/recommend?movieId=123', headers=auth_headers)
+                response = client.get('/api/v1/movies/recommend?movieId=123', headers=auth_headers)
                 assert response.status_code == 500
                 data = json.loads(response.data)
                 assert data['status'] is False
@@ -257,18 +258,18 @@ def test_not_found(client):
 
 def test_genre_recommendation_success(client, mock_recommendation_data, auth_headers):
     """
-    Test the /genreBasedRecommendation endpoint for successful genre-based recommendations.
+    Test the /api/v1/movies/genre endpoint for successful genre-based recommendations.
 
     Args:
         client (FlaskClient): The test client.
         mock_recommendation_data (tuple): Mocked recommendation data.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.genre_based_recommender', return_value=mock_recommendation_data[0]):
-        with patch('app.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
+    with patch('routes.movies.genre_based_recommender', return_value=mock_recommendation_data[0]):
+        with patch('routes.movies.cached_get_movie_poster', return_value="http://example.com/poster.jpg"):
             with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
                 with patch('my_modules.auth.verify_internal_key', return_value=True):
-                    response = client.get('/genreBasedRecommendation?genre=Action&topN=5', headers=auth_headers)
+                    response = client.get('/api/v1/movies/genre-based?genre=Action&topN=5', headers=auth_headers)
                     assert response.status_code == 200
                     data = json.loads(response.data)
                     assert data['status'] is True
@@ -279,7 +280,7 @@ def test_genre_recommendation_success(client, mock_recommendation_data, auth_hea
 
 def test_genre_recommendation_missing_genre(client, auth_headers):
     """
-    Test the /genreBasedRecommendation endpoint for missing genre parameter.
+    Test the /api/v1/movies/genre-based endpoint for missing genre parameter.
 
     Args:
         client (FlaskClient): The test client.
@@ -287,7 +288,7 @@ def test_genre_recommendation_missing_genre(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/genreBasedRecommendation', headers=auth_headers)
+            response = client.get('/api/v1/movies/genre-based', headers=auth_headers)
             assert response.status_code == 400
             data = json.loads(response.data)
             assert data['status'] is False
@@ -295,16 +296,16 @@ def test_genre_recommendation_missing_genre(client, auth_headers):
 
 def test_genre_recommendation_empty_results(client, auth_headers):
     """
-    Test the /genreBasedRecommendation endpoint when no movies are found for the genre.
+    Test the /api/v1/movies/genre-based endpoint when no movies are found for the genre.
 
     Args:
         client (FlaskClient): The test client.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.genre_based_recommender', return_value=pd.DataFrame()):
+    with patch('routes.movies.genre_based_recommender', return_value=pd.DataFrame()):
         with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
             with patch('my_modules.auth.verify_internal_key', return_value=True):
-                response = client.get('/genreBasedRecommendation?genre=NonExistentGenre', headers=auth_headers)
+                response = client.get('/api/v1/movies/genre-based?genre=NonExistentGenre', headers=auth_headers)
                 assert response.status_code == 400
                 data = json.loads(response.data)
                 assert data['status'] is False
@@ -312,16 +313,16 @@ def test_genre_recommendation_empty_results(client, auth_headers):
 
 def test_genre_recommendation_exception(client, auth_headers):
     """
-    Test the /genreBasedRecommendation endpoint for unhandled exceptions.
+    Test the /api/v1/movies/genre endpoint for unhandled exceptions.
 
     Args:
         client (FlaskClient): The test client.
         auth_headers (dict): Authentication headers.
     """
-    with patch('app.genre_based_recommender', side_effect=Exception("Test exception")):
+    with patch('routes.movies.genre_based_recommender', side_effect=Exception("Test exception")):
         with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
             with patch('my_modules.auth.verify_internal_key', return_value=True):
-                response = client.get('/genreBasedRecommendation?genre=Action', headers=auth_headers)
+                response = client.get('/api/v1/movies/genre-based?genre=Action', headers=auth_headers)
                 assert response.status_code == 500
                 data = json.loads(response.data)
                 assert data['status'] is False
@@ -368,8 +369,8 @@ def test_cached_get_movie_poster():
     1. The function returns the expected poster URL
     2. The caching mechanism works by only calling the underlying function once
     """
-    with patch('app.get_movie_poster', return_value="http://example.com/poster.jpg"):
-        from app import cached_get_movie_poster
+    with patch('routes.movies.get_movie_poster', return_value="http://example.com/poster.jpg"):
+        from routes.movies import cached_get_movie_poster
         result1 = cached_get_movie_poster(123, "/path.jpg")
         assert result1 == "http://example.com/poster.jpg"
         result2 = cached_get_movie_poster(123, "/path.jpg")
@@ -385,7 +386,7 @@ def test_invalid_token(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(False, None)):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/recommend?movieId=1', headers=auth_headers)
+            response = client.get('/api/v1/movies/recommend?movieId=1', headers=auth_headers)
             assert response.status_code in [401, 403]
 
 def test_missing_token(client):
@@ -400,7 +401,7 @@ def test_missing_token(client):
     }
     with patch('my_modules.auth.verify_token', return_value=(False, None)):
         with patch('my_modules.auth.verify_internal_key', return_value=True):
-            response = client.get('/recommend?movieId=1', headers=headers)
+            response = client.get('/api/v1/movies/recommend?movieId=1', headers=headers)
             assert response.status_code in [401, 403]
 
 def test_invalid_internal_key(client, auth_headers):
@@ -413,7 +414,7 @@ def test_invalid_internal_key(client, auth_headers):
     """
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=False):
-            response = client.get('/recommend?movieId=1', headers=auth_headers)
+            response = client.get('/api/v1/movies/recommend?movieId=1', headers=auth_headers)
             assert response.status_code in [401, 403]
 
 def test_missing_internal_key(client):
@@ -428,5 +429,5 @@ def test_missing_internal_key(client):
     }
     with patch('my_modules.auth.verify_token', return_value=(True, {'userId': '123', 'username': 'testuser'})):
         with patch('my_modules.auth.verify_internal_key', return_value=False):
-            response = client.get('/recommend?movieId=1', headers=headers)
+            response = client.get('/api/v1/movies/recommend?movieId=1', headers=headers)
             assert response.status_code in [401, 403]
