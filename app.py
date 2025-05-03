@@ -2,18 +2,16 @@
 import os
 import time
 import logging
+import threading
 from functools import lru_cache
 
 # Third-Party Imports
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, g
 from flask_cors import CORS
 from dotenv import load_dotenv
 
 # Local Module Imports
 from my_modules import (
-    improved_hybrid_recommendations,
-    get_movie_poster,
-    genre_based_recommender,
     load_data,
     load_model,
     load_count_matrix,
@@ -32,23 +30,95 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)  # Enable Cross-Origin Resource Sharing (CORS) for handling requests from different origins
 
+# Store application start time for uptime tracking
+app.start_time = time.time()
+
 # Configure logging
 setup_logging(app)
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
 
-# Load datasets and models
-logger.info("Loading datasets and models...")
-ratings_df, links_df, new_df = load_data()  # Load movie ratings and metadata
-best_svd1 = load_model()  # Load the trained Singular Value Decomposition (SVD) model
-count_matrix = load_count_matrix()  # Load precomputed count-based feature matrix
-new_df2 = preprocess_movies(new_df)  # Preprocess the movie dataset for recommendations
-logger.info("Datasets and models loaded successfully")
+# Global variables for datasets and models
+ratings_df = None
+links_df = None
+new_df = None
+best_svd1 = None
+count_matrix = None
+new_df2 = None
+data_loaded = False
+loading_thread = None
 
-# Define cache size for poster retrieval, with a default value of 1000 if not specified in .env
-cache_size = int(os.getenv("POSTER_CACHE_SIZE", 1000))
+def load_datasets_and_models():
+    """
+    Load all datasets and models in a separate thread to avoid blocking the application startup.
+    This function updates the global variables when loading is complete.
+    """
+    global ratings_df, links_df, new_df, best_svd1, count_matrix, new_df2, data_loaded
+    
+    try:
+        logger.info("Loading datasets and models...")
+        
+        # Load movie ratings and metadata
+        ratings_df, links_df, new_df = load_data()
+        
+        # Load the trained Singular Value Decomposition (SVD) model
+        best_svd1 = load_model()
+        
+        # Load precomputed count-based feature matrix
+        count_matrix = load_count_matrix()
+        
+        # Preprocess the movie dataset for recommendations
+        new_df2 = preprocess_movies(new_df)
+        
+        data_loaded = True
+        logger.info("Datasets and models loaded successfully")
+    except Exception as e:
+        logger.error(f"Failed to load datasets or models: {str(e)}", exc_info=True)
+        data_loaded = False
 
+# Start loading data in a background thread
+loading_thread = threading.Thread(target=load_datasets_and_models)
+loading_thread.daemon = True
+loading_thread.start()
+
+# Add a health check endpoint
+@app.route("/health")
+def health_check():
+    """
+    Health check endpoint to verify the API is running.
+    
+    This endpoint returns a simple success response with the API status.
+    It can be used by monitoring systems to check if the API is operational.
+    
+    Returns:
+        Response (JSON): A JSON response with the API status.
+    """
+    # Start measuring response time
+    start_time = time.time()
+    
+    # Create request info dictionary for logging
+    request_info = {
+        "http_method": request.method,
+        "remote_ip": request.remote_addr,
+        "user_agent": request.user_agent.string,
+        "path": request.path
+    }
+    
+    # Return a simple success response
+    return create_response(
+        status=True,
+        message="API is operational",
+        data={
+            "status": "healthy",
+            "version": "1.0.0",
+            "uptime": time.time() - app.start_time,
+            "data_loaded": data_loaded
+        },
+        status_code=200,
+        start_time=start_time,
+        request_info=request_info
+    )
 
 @app.route("/api/v1/")
 def home():
@@ -84,6 +154,11 @@ def home():
         "name": "Harmoni AI - Movie Recommendation System API",
         "version": "1.0.0",
         "description": "A sophisticated movie recommendation system that leverages hybrid recommendation techniques to provide personalized movie suggestions.",
+        "status": {
+            "healthy": True,
+            "uptime": time.time() - app.start_time,
+            "data_loaded": data_loaded
+        },
         "endpoints": [
             {
                 "path": "/api/v1/movies/recommend",
@@ -241,9 +316,51 @@ def not_found(e):
     )
 
 
+# Add a 500 error handler for internal server errors
+@app.errorhandler(500)
+def internal_server_error(e):
+    """
+    Handles internal server errors.
+    
+    This function is triggered when an unhandled exception occurs in the application.
+    It returns a standardized JSON response with a 500 status code.
+    
+    Args:
+        e: The error object passed by Flask.
+        
+    Returns:
+        Response (JSON): A JSON response with a 500 status code and error message.
+    """
+    # Log the 500 error
+    logger.error(
+        f"500 Internal Server Error: {str(e)}",
+        exc_info=True,
+        extra={
+            "http_method": request.method,
+            "remote_ip": request.remote_addr,
+            "user_agent": request.user_agent.string,
+            "path": request.path
+        }
+    )
+    
+    # Return a standardized response
+    return create_response(
+        status=False,
+        message="Internal server error occurred",
+        status_code=500,
+        start_time=time.time(),
+        request_info={
+            "http_method": request.method,
+            "remote_ip": request.remote_addr,
+            "user_agent": request.user_agent.string,
+            "path": request.path
+        }
+    )
+
 # Register all blueprints
 for blueprint in blueprints:
     app.register_blueprint(blueprint)
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Use threaded=True for better performance with multiple requests
+    app.run(debug=True, threaded=True)

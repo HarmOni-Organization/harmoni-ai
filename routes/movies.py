@@ -1,6 +1,8 @@
 # Standard Library Imports
+import os
 import time
 import logging
+from functools import lru_cache
 
 # Third-Party Imports
 from flask import Blueprint, request, g
@@ -13,11 +15,12 @@ from my_modules import (
     create_response
 )
 from my_modules.auth import require_auth
-import os
-from functools import lru_cache
 
 # Get logger for this module
 logger = logging.getLogger(__name__)
+
+# Define cache size for poster retrieval, with a default value of 1000 if not specified in .env
+cache_size = int(os.getenv("POSTER_CACHE_SIZE", 1000))
 
 # Create a blueprint for movie-related endpoints
 movies_bp = Blueprint('movies', __name__, url_prefix='/api/v1/movies')
